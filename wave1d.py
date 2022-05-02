@@ -17,10 +17,15 @@
 # m=1,2,3,...
 #  h[n+1,m] + 0.5 D dt/dx ( u[n+1,m+1/2] - u[n+1,m-1/2])  
 #= h[n  ,m] - 0.5 D dt/dx ( u[n  ,m+1/2] - u[n  ,m-1/2])
-# hello world
+# hello
+
 import numpy as np
+import pandas as pd ###
 from scipy.sparse import spdiags
 from scipy.sparse.linalg import spsolve
+from scipy.signal import find_peaks ###
+from scipy.signal import argrelextrema ###
+from sklearn.cluster import KMeans ### 
 import matplotlib.pyplot as plt
 import timeseries
 import dateutil 
@@ -140,21 +145,28 @@ def initialize(settings): #return (h,u,t) at initial time
     return (x,t[0])
 
 def plot_state(fig,x,i,s):
+
+    '''
     #plot all waterlevels and velocities at one time
     fig.clear()
     xh=s['x_h']
     ax1=fig.add_subplot(211)
     ax1.plot(xh,x[0::2])
     ax1.set_ylabel('h')
+    ax1.set_ylim([-3,3])
     xu=s['x_u']
     ax2=fig.add_subplot(212)
     ax2.plot(xu,x[1::2])
     ax2.set_ylabel('u')
+    ax2.set_ylim([-3,3])
     plt.savefig("fig_map_%3.3d.png"%i)
     plt.draw()
-    plt.pause(0.2)
-
+    #plt.pause(0.2)
+    '''
+    
 def plot_series(t,series_data,s,obs_data):
+    
+    '''
     # plot timeseries from model and observations
     loc_names=s['loc_names']
     nseries=len(loc_names)
@@ -166,7 +178,7 @@ def plot_series(t,series_data,s,obs_data):
         ntimes=min(len(t),obs_data.shape[1])
         ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
         plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
-
+    '''
     
 def simulate():
     # for plots
@@ -215,8 +227,88 @@ def simulate():
     observed_data[4,:]=obs_values[:]
 
     plot_series(times,series_data,s,observed_data)
-
+    
+    return t, series_data
 #main program
 if __name__ == "__main__":
-    simulate()
+    t_t, s_d = simulate()
+    
+    ### finding the peaks
+    
+    peaks_c = find_peaks(s_d[0,:])[0] # index 0 = Cadzand
+    #peaks_c = argrelextrema(s_d[0,:], np.greater)[0]
+    heights_c = s_d[0,:][peaks_c]
+    peak_pos_c = t_t[peaks_c]
+
+    #peaks_v = find_peaks(s_d[1,:])[0] # index 1 = Vlissingen
+    peaks_v = argrelextrema(s_d[1,:], np.greater)[0]
+    peaks_v = peaks_v
+    heights_v = s_d[1,:][peaks_v]
+    peak_pos_v = t_t[peaks_v]
+    
+    #peaks_t = find_peaks(s_d[2,:])[0] # index 2 = Terneuzen
+    peaks_t = argrelextrema(s_d[2,:], np.greater)[0]
+    heights_t = s_d[2,:][peaks_t]
+    peak_pos_t = t_t[peaks_t]
+    
+    #peaks_h = find_peaks(s_d[3,:])[0] # index 3 = Hansweert
+    peaks_h = argrelextrema(s_d[3,:], np.greater)[0]
+    heights_h = s_d[3,:][peaks_h]
+    peak_pos_h = t_t[peaks_h]
+    
+    #peaks_b = find_peaks(s_d[4,:])[0] # index 4 = Bath
+    peaks_b = argrelextrema(s_d[4,:], np.greater)[0]
+    heights_b = s_d[4,:][peaks_b]
+    
+    ## delete element with negative heights
+    i_neg = np.where(heights_b < 0.0)[0]
+    peaks_b = np.delete(peaks_b, i_neg)
+    heights_b = np.delete(heights_b, i_neg)
+    
+    peak_pos_b = t_t[peaks_b]
+    
+    
+    ### Clustering the extrema by using K-means
+    
+    #### Dataframe creation
+
+    Data_v = {'time': peak_pos_v, 'height': heights_v}
+    points_v = pd.DataFrame(Data_v, columns=['time', 'height'])
+    
+    Data_b = {'time': peak_pos_b, 'height': heights_b}
+    points_b = pd.DataFrame(Data_b, columns=['time', 'height'])
+
+    #### K-means application
+
+    kmeans_v = KMeans(n_clusters=4)
+    points_v['label'] = kmeans_v.fit_predict(points_v[['time']])
+
+    kmeans_b = KMeans(n_clusters=4)
+    points_b['label'] = kmeans_b.fit_predict(points_b[['time']])
+    
+    #### Checked for the middle of the clusters, that was easier
+    #### Between wave forms, time differs, and so does the speed, not strange
+    #### So, I will take the maximum values of each cluster, probably speed will be more similar
+    #### Hopefully :)
+    
+    centroids_v = kmeans_v.cluster_centers_.ravel()
+    centroids_v = np.sort(centroids_v)
+    centroids_b = kmeans_b.cluster_centers_.ravel()
+    centroids_b = np.sort(centroids_b)
+    
+    time_difference = centroids_b - centroids_v
+    
+    plt.ion()
+    
+    fig_peaks = plt.figure()
+    ax_peaks = fig_peaks.subplots()
+    ax_peaks.plot(t_t, s_d[0,:], color = 'k')
+    ax_peaks.plot(t_t, s_d[1,:], color = 'm')
+    ax_peaks.plot(t_t, s_d[4,:], color = 'b')
+    ax_peaks.scatter(peak_pos_c, heights_c, color='y', marker = 'o', label = 'maxima Cadzand')
+    ax_peaks.scatter(peak_pos_v, heights_v, color='g', marker = 'o', label = 'maxima Vlissingen')
+    ax_peaks.scatter(peak_pos_b, heights_b, color='r', marker = 'o', label = 'maxima Bath')
+    plt.title("Peaks")
+    ax_peaks.legend()
+    
     plt.show()
