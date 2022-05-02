@@ -56,7 +56,7 @@ def settings():
     s['dt']=dt
     reftime=dateutil.parser.parse("201312050000") #times in secs relative
     s['reftime']=reftime
-    t=dt*np.arange(np.round(t_f/dt))
+    t=dt*np.arange(np.round(t_f/dt)) + dt ### time step shift
     s['t']=t
     #boundary (western water level)
     #1) simple function
@@ -84,9 +84,9 @@ def initialize(settings): #return (h,u,t) at initial time
     h_0=settings['h_0']
     u_0=settings['u_0']
     n=settings['n']
-    x=np.zeros(2*n) #order h[0],u[0],...h[n],u[n]
-    x[0::2]=u_0[:]
-    x[1::2]=h_0[:]
+    x=np.zeros(2*n) #order h[0],u[0],...h[n],u[n], changed order!
+    x[0::2]=h_0[:]
+    x[1::2]=u_0[:]
     #time
     t=settings['t']
     reftime=settings['reftime']
