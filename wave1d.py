@@ -17,7 +17,7 @@
 # m=1,2,3,...
 #  h[n+1,m] + 0.5 D dt/dx ( u[n+1,m+1/2] - u[n+1,m-1/2])  
 #= h[n  ,m] - 0.5 D dt/dx ( u[n  ,m+1/2] - u[n  ,m-1/2])
-# hello
+# hello world
 import numpy as np
 from scipy.sparse import spdiags
 from scipy.sparse.linalg import spsolve
