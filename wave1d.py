@@ -150,7 +150,7 @@ def plot_state(fig,x,i,s):
     ax2=fig.add_subplot(212)
     ax2.plot(xu,x[1::2])
     ax2.set_ylabel('u')
-    plt.savefig("fig_map_%3.3d.png"%i)
+    #plt.savefig("fig_map_%3.3d.png"%i)
     plt.draw()
     plt.pause(0.2)
 
@@ -165,7 +165,7 @@ def plot_series(t,series_data,s,obs_data):
         ax.set_xlabel('time')
         ntimes=min(len(t),obs_data.shape[1])
         ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
-        plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
+        #plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
 
     
 def simulate():
