@@ -246,9 +246,72 @@ def plop(s_data, o_data):
         
     return bias, rmse, med
 
+def AR_process(sigma_w, alpha, size, startup=1000):
+
+    N = int(size[0] + startup)
+
+    ## iid normal
+    white_noise = np.random.normal(loc=0, scale=sigma_w, size=(N, size[1]))
+
+    AR = np.zeros_like(white_noise)
+    AR[0] = white_noise[0]
+    for i in range(N-1):
+        AR[i+1] = alpha*AR[i] + white_noise[i+1]
+
+    return AR[startup:,:] ## Returns the AR process with the correct length after startup
+
 
 #main program
 if __name__ == "__main__":
-    t_t, o_t, s_d, o_d = simulate()
+
+
+    s = settings()
+
+
+
+    m0, T = initialize(s)
+
+    s['ensize'] = 50
+    sigma = 1
+    P0 = sigma * np.identity(200)
+
+
+
+
+    y0 = np.random.normal(0, 1, size=(200, s['ensize']))
+    eps0 = m0 + np.linalg.cholesky(P0).dot(y0)
+
+    x0 = np.mean(eps0, axis=1)
+
+
+    t=s['t'][:] #[:40]
+    times=s['times'][:] #[:40]
+    # series_data=np.zeros((len(ilocs),len(t)))
+    w = AR_process(s['sigma_w'], s['alpha'], size=(len(t), s['ensize']))
+
+
+    eps = eps0.copy()
+    for k in range(len(t)):
+        print('timestep %d'%k)
+
+        epsf=timestep(eps,k,s) + w[k, :]
+
+        xf = np.mean(epsf, axis=1)
+
+        ef = epsf - xf
+        
+        Pf = np.zeros((len(t), len(t)))
+
+        for j in range(s['ensize']):
+            Pf = Pf + ef[:, j].dot(ef[:,j].T)/(s['ensize']-1)
+
+        
+
+        # series_data[:,k]=x[ilocs]
+
+
+
+
+
     
 
