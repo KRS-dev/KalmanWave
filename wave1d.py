@@ -21,14 +21,19 @@
 import numpy as np
 from scipy.sparse import spdiags
 from scipy.sparse.linalg import spsolve
+from scipy.stats import norm
 import matplotlib.pyplot as plt
 import timeseries
 import dateutil 
 import datetime
 
+
+
 minutes_to_seconds=60.
 hours_to_seconds=60.*60.
 days_to_seconds=24.*60.*60.
+
+np.random.seed(8234)
 
 def settings():
     s=dict() #hashmap to  use s['g'] as s.g in matlab
@@ -66,7 +71,12 @@ def settings():
     bound_t=np.zeros(len(bound_times))
     for i in np.arange(len(bound_times)):
         bound_t[i]=(bound_times[i]-reftime).total_seconds()
-    s['h_left'] = np.interp(t,bound_t,bound_values)        
+
+    s['sigma_N'] = 0.2
+    s['alpha'] = np.exp(-s['dt']/(6*hours_to_seconds))
+    s['sigma_w'] = s['sigma_N'] *np.sqrt(1 - s['alpha']**2 )
+    s['AR_forcing'] = AR_forcing(sigma_w = s['sigma_w'], alpha=s['alpha'], length=len(t))
+    s['h_left'] = np.interp(t,bound_t,bound_values) + s['AR_forcing']
     return s
 
 def timestep(x,i,settings): #return (h,u) one timestep later
@@ -165,13 +175,60 @@ def plot_series(t,series_data,s,obs_data):
         ax.set_xlabel('time')
         ntimes=min(len(t),obs_data.shape[1])
         ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
-        plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
+        #plt.sav#efig(("%s.png"%loc_names[i]).replace(' ','_'))
 
+def plot_series_ensemble(ensemble, s, obs_data):
+
+    loc_names=s['loc_names']
+    nseries=len(loc_names)
+    for i in range(nseries):
+        t, _ = ensemble[0]
+        fig,ax=plt.subplots()
+        ax.set_title(loc_names[i])
+        ax.set_xlabel('time')
+        ntimes=min(len(t),obs_data.shape[1])
+        ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-',  zorder=10)
+
+        for j in range(len(ensemble)):
+            t, series_data = ensemble[j]
+            ax.plot(t,series_data[i,:],'b:', linewidth=0.5, alpha=.5)
+        
+        plt.savefig(("ensemble_%s.png"%loc_names[i]).replace(' ','_'))
+
+
+def AR_forcing(sigma_w, alpha, length, startup=1000):
+
+    N = int(length + startup)
+
+    ## iid normal
+    white_noise = np.random.normal(loc=0, scale=sigma_w, size=N)
+
+    AR = np.zeros_like(white_noise)
+    AR[0] = white_noise[0]
+    for i in range(N-1):
+        AR[i+1] = alpha*AR[i] + white_noise[i+1]
+
+    return AR[startup:] ## Returns the AR process with the correct length after startup
+
+def plop(series_data, observed_data):
     
-def simulate():
+    n = 5 # five cities, heights
+    
+    bias = np.zeros(n)
+    rmse = np.zeros(n)
+    med = np.zeros(n)
+    
+    for i in range(n):
+        bias[i] = np.mean(series_data[i,:]-observed_data[i,1:])
+        rmse[i] = np.sqrt(np.sum((series_data[i,:]-observed_data[i,1:])**2)/len(series_data[i,:]))
+        med[i] = np.median(series_data[i,:]-observed_data[i,1:])
+        
+    return bias, rmse, med
+    
+def simulate(): 
     # for plots
-    plt.close('all')
-    fig1,ax1 = plt.subplots() #maps: all state vars at one time
+    # plt.close('all')
+    # fig1,ax1 = plt.subplots() #maps: all state vars at one time
     # locations of observations
     s=settings()
     L=s['L']
@@ -179,7 +236,7 @@ def simulate():
     xlocs_waterlevel=np.array([0.0*L,0.25*L,0.5*L,0.75*L,0.99*L])
     xlocs_velocity=np.array([0.0*L,0.25*L,0.5*L,0.75*L])
     ilocs=np.hstack((np.round((xlocs_waterlevel)/dx)*2,np.round((xlocs_velocity-0.5*dx)/dx)*2+1)).astype(int) #indices of waterlevel locations in x
-    print(ilocs)
+    # print(ilocs)
     loc_names=[]
     names=['Cadzand','Vlissingen','Terneuzen','Hansweert','Bath']
     for i in range(len(xlocs_waterlevel)):
@@ -196,9 +253,9 @@ def simulate():
     times=s['times'][:] #[:40]
     series_data=np.zeros((len(ilocs),len(t)))
     for i in np.arange(1,len(t)):
-        print('timestep %d'%i)
+        # print('timestep %d'%i)
         x=timestep(x,i,s)
-        plot_state(fig1,x,i,s) #show spatial plot; nice but slow
+        #plot_state(fig1,x,i,s) #show spatial plot; nice but slow
         series_data[:,i]=x[ilocs]
         
     #load observations
@@ -214,9 +271,87 @@ def simulate():
     (obs_times,obs_values)=timeseries.read_series('tide_bath.txt')
     observed_data[4,:]=obs_values[:]
 
-    plot_series(times,series_data,s,observed_data)
+    return t, obs_times, series_data, observed_data, s
+
+    #plot_series(times,series_data,s,observed_data)
 
 #main program
 if __name__ == "__main__":
-    simulate()
+
+    ensemble = []
+
+    for i in range(50):
+        t, obs_times, series_data, observed_data, s = simulate()
+
+        ensemble.append([t, series_data])
+        print(i)
+
+    plot_series_ensemble(ensemble, s, observed_data)
+
+    ensemble_statistics = np.zeros(shape=(5, len(ensemble), 3))
+
+    for i, (t, series_data) in enumerate(ensemble):
+        bias, rmse, median = plop(series_data, observed_data)
+
+        ensemble_statistics[:, i, 0] = bias
+        ensemble_statistics[:, i, 1] = median
+        ensemble_statistics[:, i, 2] = rmse
+
+    
+    overall_bias = np.mean(ensemble_statistics[1:, :, 0]) # skipping cadzand as it is a boundary condition
+    overall_rmse = np.mean(ensemble_statistics[1:, :, 1]) 
+    overall_median = np.mean(ensemble_statistics[1:, :, 0])
+
+
+    fig, axes = plt.subplots(nrows=4, ncols=3, figsize=(12,12), sharey=True)
+
+    n_bins = 10
+    statistics_list = ['Bias', 'Median', 'RMSE']
+
+    for i in range(0, 4):
+        for j in range(ensemble_statistics.shape[2]):
+
+            data = ensemble_statistics[i+1, :, j]
+            if j == 2:
+                axes[i, j].hist(data, density=True, bins=n_bins, color='skyblue')
+            else:
+                axes[i, j].hist(data, density=True, bins=n_bins)
+
+
+
+            x = np.linspace(np.min(data), np.max(data), 100)
+
+            mean = np.mean(data)
+            sigma = np.std(data)
+
+            axes[i,j].plot(x, norm.pdf(x, mean, sigma), 'r-', alpha=0.6, label='norm pdf')
+            
+            textstr = '\n'.join((
+                r'$\mu=%.2f$' % (mean, ),
+                r'$\sigma=%.2f$' % (sigma, )))
+
+            # these are matplotlib.patch.Patch properties
+            props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+
+            # place a text box in upper left in axes coords
+            axes[i,j].text(0.05, 0.95, textstr, transform=axes[i,j].transAxes, fontsize=12,
+                    verticalalignment='top', bbox=props)
+
+
+            if j == 0:
+                # print(s['loc_names'][i+1])
+                axes[i, j].set_ylabel(s['loc_names'][i+1].split(' ')[-1])
+            
+            if i == 0:
+                axes[i,j].set_title(statistics_list[j])
+            
+    plt.savefig('histograms.png')
     plt.show()
+
+
+
+
+    
+
+    
+    
