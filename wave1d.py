@@ -19,6 +19,8 @@
 #= h[n  ,m] - 0.5 D dt/dx ( u[n  ,m+1/2] - u[n  ,m-1/2])
 # hello
 
+#%%
+
 import numpy as np
 import pandas as pd ###
 from scipy.sparse import spdiags
@@ -71,7 +73,18 @@ def settings():
     bound_t=np.zeros(len(bound_times))
     for i in np.arange(len(bound_times)):
         bound_t[i]=(bound_times[i]-reftime).total_seconds()
-    s['h_left'] = np.interp(t,bound_t,bound_values)        
+    s['h_left'] = np.interp(t,bound_t,bound_values)  
+
+
+
+    s['sigma_N'] = 0.2
+    s['alpha'] = np.exp(-s['dt']/(6*hours_to_seconds))
+    s['sigma_forecast'] = s['sigma_N'] *np.sqrt(1 - s['alpha']**2 )
+    # s['AR_forcing'] = AR_forcing(sigma_w = s['sigma_w'], alpha=s['alpha'], length=len(t))
+    # s['h_left'] = np.interp(t,bound_t,bound_values) + s['AR_forcing']
+
+
+
     return s
 
 def timestep(x,i,settings): #return (h,u) one timestep later
@@ -142,6 +155,7 @@ def initialize(settings): #return (h,u,t) at initial time
     B=B.tocsr()
     settings['A']=A #cache for later use
     settings['B']=B
+
     return (x,t[0])
 
 def plot_state(fig,x,i,s):
@@ -166,19 +180,18 @@ def plot_state(fig,x,i,s):
     
 def plot_series(t,series_data,s,obs_data):
     
-    '''
+    
     # plot timeseries from model and observations
     loc_names=s['loc_names']
     nseries=len(loc_names)
-    for i in range(nseries):
+    for i in range(4):
         fig,ax=plt.subplots()
         ax.plot(t,series_data[i,:],'b-')
         ax.set_title(loc_names[i])
         ax.set_xlabel('time')
         ntimes=min(len(t),obs_data.shape[1])
         ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
-        plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
-    '''
+        # plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
     
 def simulate():
     # for plots
@@ -248,70 +261,161 @@ def plop(s_data, o_data):
 
 def AR_process(sigma_w, alpha, size, startup=1000):
 
-    N = int(size[0] + startup)
+    N = int(size + startup)
 
     ## iid normal
-    white_noise = np.random.normal(loc=0, scale=sigma_w, size=(N, size[1]))
+    white_noise = np.random.normal(loc=0, scale=sigma_w, size=N)
 
     AR = np.zeros_like(white_noise)
     AR[0] = white_noise[0]
     for i in range(N-1):
         AR[i+1] = alpha*AR[i] + white_noise[i+1]
 
-    return AR[startup:,:] ## Returns the AR process with the correct length after startup
-
-
-#main program
-if __name__ == "__main__":
-
-
-    s = settings()
+    return AR[startup:] ## Returns the AR process with the correct length after startup
 
 
 
-    m0, T = initialize(s)
-
-    s['ensize'] = 50
-    sigma = 1
-    P0 = sigma * np.identity(200)
-
-
-
-
-    y0 = np.random.normal(0, 1, size=(200, s['ensize']))
-    eps0 = m0 + np.linalg.cholesky(P0).dot(y0)
-
-    x0 = np.mean(eps0, axis=1)
-
-
-    t=s['t'][:] #[:40]
-    times=s['times'][:] #[:40]
-    # series_data=np.zeros((len(ilocs),len(t)))
-    w = AR_process(s['sigma_w'], s['alpha'], size=(len(t), s['ensize']))
-
-
-    eps = eps0.copy()
-    for k in range(len(t)):
-        print('timestep %d'%k)
-
-        epsf=timestep(eps,k,s) + w[k, :]
-
-        xf = np.mean(epsf, axis=1)
-
-        ef = epsf - xf
-        
-        Pf = np.zeros((len(t), len(t)))
-
-        for j in range(s['ensize']):
-            Pf = Pf + ef[:, j].dot(ef[:,j].T)/(s['ensize']-1)
-
-        
-
-        # series_data[:,k]=x[ilocs]
-
-
-
-
-
+#%%
     
+s = settings()
 
+
+#load observations
+(obs_times,obs_values)=timeseries.read_series('tide_vlissingen.txt')
+observed_data=np.zeros((4,len(obs_times)))
+observed_data[0,:]=obs_values[:]
+(obs_times,obs_values)=timeseries.read_series('tide_terneuzen.txt')
+observed_data[1,:]=obs_values[:]
+(obs_times,obs_values)=timeseries.read_series('tide_hansweert.txt')
+observed_data[2,:]=obs_values[:]
+(obs_times,obs_values)=timeseries.read_series('tide_bath.txt')
+observed_data[3,:]=obs_values[:]
+
+observed_data = observed_data[:, 1:]
+
+dx = s['dx']
+L = s['L']
+xlocs_waterlevel=np.array([0.0*L,0.25*L,0.5*L,0.75*L,0.99*L])
+xlocs_velocity=np.array([0.0*L,0.25*L,0.5*L,0.75*L])
+ilocs=np.hstack((np.round((xlocs_waterlevel)/dx)*2,np.round((xlocs_velocity-0.5*dx)/dx)*2+1)).astype(int) #indices of waterlevel locations in x
+loc_names=[]
+names=['Cadzand','Vlissingen','Terneuzen','Hansweert','Bath']
+for i in range(len(xlocs_waterlevel)):
+    loc_names.append('Waterlevel at x=%f km %s'%(0.001*xlocs_waterlevel[i],names[i]))
+for i in range(len(xlocs_velocity)):
+    loc_names.append('Velocity at x=%f km %s'%(0.001*xlocs_velocity[i],names[i]))
+s['xlocs_waterlevel']=xlocs_waterlevel
+s['xlocs_velocity']=xlocs_velocity
+s['ilocs']=ilocs
+s['loc_names']=loc_names
+
+
+
+m0, T = initialize(s)
+
+#%%
+
+#### INITIALIZATION KALMAN FILTER
+s['ensize'] = 50
+t=s['t'][:] #[:40]
+times=s['times'][:] #[:40]
+
+sigmaens = 0.1 # Ensemble noise
+
+k = np.ones(200)
+k[1::2] = 2
+P0 = sigmaens *k* np.eye(s['n']*2) # initial ensemble covariance 
+
+
+y = np.random.normal(0, 1, size=(s['n']*2, len(t)+1, s['ensize'])) ## standard normal, gridpoints for h x ensemble size
+eps0 = m0.reshape(-1,1) + np.linalg.cholesky(P0).dot(y[:,0,:])
+x0 = np.mean(eps0, axis=1)
+
+#%%
+
+
+# series_data=np.zeros((len(ilocs),len(t)))
+
+sigma_forecast = 0.01 #s['sigma_forecast']
+w = np.zeros(shape=(2*s['n'], len(t), s['ensize']))
+for i in range(2*s['n']):
+    for j in range(s['ensize']):
+        w[i, :, j] = AR_process(sigma_forecast, s['alpha'], size=len(t))
+
+# sigmaobs = np.copy(s['sigma_N'])
+sigmaobs = 0.01
+R = np.eye(4)*sigmaobs
+v = np.zeros(shape=(4, len(times), s['ensize']))
+SR = np.linalg.cholesky(R)
+for i in range(len(times)):
+    v[:, i, :] = SR.dot(np.random.normal(0, 1, size=(4, s['ensize'])))
+# v = np.linalg.cholesky(R).dot(np.random.normal(0, 1, size=(4, len(times)-1, s['ensize'])))
+
+z_virt = observed_data.reshape(4, -1, 1) + v
+
+H = np.zeros(shape=(4,200))
+H[:, ilocs[1:5]] = 1
+
+
+x_array= np.zeros(shape=(2*s['n'], len(t)))
+series_data = np.zeros(shape=(len(ilocs), len(t)))
+
+#%%
+
+eps = eps0.copy()
+for k in range(len(t)):
+    print('timestep %d'%k)
+
+    epsf = np.zeros_like(eps)
+    for i in range(s['ensize']):
+        epsf[:,i]=timestep(eps[:,i],k,s) + w[:, k, i]
+
+    xf = np.mean(epsf, axis=1)
+
+    ef = epsf - xf.reshape(-1,1)
+    
+    Pf = np.zeros((s['n']*2, s['n']*2))
+
+    for j in range(s['ensize']):
+        Pf = Pf + np.outer(ef[:, j], ef[:,j])/(s['ensize']-1)
+    
+    print(np.linalg.eigvals(Pf))
+
+    D = np.matmul(np.matmul(H,Pf), H.T) + R
+    K = np.matmul(np.matmul(Pf, H.T), np.linalg.inv(D))
+
+    if k%50 == 0:
+        plt.figure()
+        plt.plot(K)
+
+    innov = z_virt[:, k, :] - np.matmul(H, epsf)
+
+    eps = epsf + np.matmul(K, innov)
+    x = np.mean(eps, axis=1)
+
+    e = eps - x.reshape(-1,1)
+
+    P = np.zeros_like(Pf)
+
+    for j in range(s['ensize']):
+        P = P + np.outer(e[:, j], e[:,j])/(s['ensize']-1)
+    print(np.linalg.eigvals(P))
+    eps = x + np.linalg.cholesky(P).dot(y[:,k+1,:])
+    break
+    x_array[:, k] = x
+    series_data[:,k]=x[ilocs,k]
+
+
+#%%
+
+plot_series(times,series_data,s,observed_data)
+plt.show()
+
+
+
+
+
+
+
+
+# %%
