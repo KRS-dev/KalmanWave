@@ -17,7 +17,6 @@
 # m=1,2,3,...
 #  h[n+1,m] + 0.5 D dt/dx ( u[n+1,m+1/2] - u[n+1,m-1/2])  
 #= h[n  ,m] - 0.5 D dt/dx ( u[n  ,m+1/2] - u[n  ,m-1/2])
-# hello
 
 #%%
 
@@ -261,13 +260,13 @@ def AR_process(sigma_w, alpha, size, startup=1000):
 
     return AR[startup:] ## Returns the AR process with the correct length after startup
 
-def timestep(x,i,settings, Noise): #return (h,u) one timestep later
+def timestep(x,i,settings): #return (h,u) one timestep later
     # take one timestep
     temp=x.copy() 
     A=settings['A']
     B=settings['B']
     rhs=B.dot(temp) #B*x
-    #rhs[0]= settings['h_left'][i] +  Noise  #left boundary
+    rhs[0]= settings['h_left'][i]  #left boundary
     newx=spsolve(A,rhs)
     return newx
 
@@ -331,9 +330,10 @@ s['ensize'] = 50 # number of ensembles
 t=s['t'][:] #[:40] # numpy array
 times=s['times'][:] #[:40] # datetime array
 
-sigmaens = 0.0001 # ensemble noise
+sigmaens = .1
+ # ensemble noise
 k = np.ones(200)
-k[1::2] = 2 # variance of height and velocity
+# k[1::2] = 2 # variance of height and velocity
 P0 = sigmaens*k*np.eye(s['n']*2) # initial ensemble covariance 
 
 y = np.random.normal(0, 1, size=(s['n']*2, len(t)+1, s['ensize'])) ## standard normal, gridpoints for h x ensemble size
@@ -349,7 +349,7 @@ x0 = np.mean(eps0, axis=1)
 #################################
 
 # sigmaobs = np.copy(s['sigma_N'])
-sigmaobs = 0.001
+sigmaobs = 0.01
 R = np.eye(4)*sigmaobs
 v = np.zeros(shape=(4, len(times), s['ensize']))
 SR = np.linalg.cholesky(R)
@@ -360,17 +360,22 @@ for i in range(len(times)):
 # v = np.linalg.cholesky(R).dot(np.random.normal(0, 1, size=(4, len(times)-1, s['ensize'])))
 
 # virtual observations
-z_virt = observed_data.reshape(4, -1, 1) - v # lmao 
+z_virt = observed_data.reshape(4, -1, 1) - v # lmao, is alleen maar huilen dit hoor
 
 ##################################
 ###### Kalman Filter Initialization
 ##################################
 
 H = np.zeros(shape=(4,201))
-H[:, ilocs[1:5]] = 1
+
+## using only the last 4 observations so not at Cadzand
+for j, iloc in enumerate(ilocs[1:5]):
+    H[j, iloc] = 1
 
 x_array= np.zeros(shape=(2*s['n']+1, len(t)))
-series_data = np.zeros(shape=(len(ilocs), len(t)))
+series_data = np.zeros(shape=(len(ilocs[1:5]), len(t)))
+
+K_array = np.zeros(shape=(2*s['n'] + 1, len(ilocs[1:5]), len(t)))
 
 #################################
 ####
@@ -378,7 +383,7 @@ series_data = np.zeros(shape=(len(ilocs), len(t)))
 ####
 #################################
 
-sigma_forecast = 0.01 #s['sigma_forecast']
+sigma_forecast = s['sigma_forecast']
 
 w_N = np.random.normal(0,sigma_forecast,size=(len(t), s['ensize'])) # only noise on boundary, time uncorrelated!
 
@@ -399,11 +404,13 @@ for k in range(len(t)):
     # ensemble forecast step at time k
     epsf = np.zeros_like(eps)
     for i in range(s['ensize']):
-        matvec = timestep(eps[:-1,i],k,s, eps[-1,i])
+        matvec = timestep(eps[:-1,i],k,s)
+
         
         epsf[:-1,i] = matvec # model
         
-        epsf[0,i] = s['h_left'][k] + eps[-1,i] # add noise to first/boundary element
+        epsf[0,i] = epsf[0, i] + eps[-1,i] # add noise to first/boundary element
+        # epsf[0, i] = s['h_left'][k] + eps[-1, i]
         
         epsf[-1,i] = s['alpha']*eps[-1, i]  + w_N[k,i] # add AR process to last element
         
@@ -411,27 +418,26 @@ for k in range(len(t)):
     xf = np.mean(epsf, axis=1)
 
     # forecast error
-    ef = epsf - xf.reshape(-1,1)
-    
-    
-    '''
+    ef = epsf - xf.reshape(-1,1)   
     
     # forecast covariance
     Pf = np.zeros((s['n']*2 +1, s['n']*2 +1))
 
     for j in range(s['ensize']):
         Pf = Pf + np.outer(ef[:, j], ef[:,j])/(s['ensize']-1)
-    
-    print(np.linalg.eigvals(Pf))
-    
+        
     # kalman filter creation
-    D = np.matmul(np.matmul(H,Pf), H.T) + R
+    D = np.matmul(np.matmul(H,Pf), H.T) + R 
+
     K = np.matmul(np.matmul(Pf, H.T), np.linalg.inv(D))
     
+
     if k%50 == 0:
         plt.figure()
         plt.plot(K)
     
+    K_array[:, :, k] = K
+
     # innovation
     innov = z_virt[:, k, :] - np.matmul(H, epsf)
     
@@ -441,10 +447,11 @@ for k in range(len(t)):
     # sample mean of the estimate
     x = np.mean(eps, axis=1)
     
-    '''
     
-    x_array[:, k] = epsf[:,0]
-    series_data[:,k] = x_array[ilocs,k]
+    x_array[:, k] = x
+    series_data[:,k] = x_array[ilocs[1:5],k]
 
 plot_series(times,series_data,s,observed_data)
+
+# plt.plot(x_array[:-1,::10])
 plt.show()
