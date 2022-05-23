@@ -80,22 +80,10 @@ def settings():
     s['sigma_N'] = 0.2
     s['alpha'] = np.exp(-s['dt']/(6*hours_to_seconds))
     s['sigma_forecast'] = s['sigma_N'] *np.sqrt(1 - s['alpha']**2 )
-    # s['AR_forcing'] = AR_forcing(sigma_w = s['sigma_w'], alpha=s['alpha'], length=len(t))
-    # s['h_left'] = np.interp(t,bound_t,bound_values) + s['AR_forcing']
-
-
+#    s['AR_forcing'] = AR_process(sigma_w = s['sigma_forecast'], alpha=s['alpha'], size=len(t))
+#    s['h_left'] = np.interp(t,bound_t,bound_values) + s['AR_forcing']
 
     return s
-
-def timestep(x,i,settings): #return (h,u) one timestep later
-    # take one timestep
-    temp=x.copy() 
-    A=settings['A']
-    B=settings['B']
-    rhs=B.dot(temp) #B*x
-    rhs[0]=settings['h_left'][i] #left boundary
-    newx=spsolve(A,rhs)
-    return newx
 
 def initialize(settings): #return (h,u,t) at initial time 
     #compute initial fields and cache some things for speed
@@ -241,7 +229,7 @@ def simulate():
 
     plot_series(times,series_data,s,observed_data)
     
-    return t, obs_times, series_data, observed_data
+    return t, obs_times, series_data, observed_data, s
     
     
 def plop(s_data, o_data):
@@ -273,13 +261,32 @@ def AR_process(sigma_w, alpha, size, startup=1000):
 
     return AR[startup:] ## Returns the AR process with the correct length after startup
 
-
+def timestep(x,i,settings, Noise): #return (h,u) one timestep later
+    # take one timestep
+    temp=x.copy() 
+    A=settings['A']
+    B=settings['B']
+    rhs=B.dot(temp) #B*x
+    #rhs[0]= settings['h_left'][i] +  Noise  #left boundary
+    newx=spsolve(A,rhs)
+    return newx
 
 #%%
-    
+
+
+#t_t, o_t, s_d, o_d, s = simulate()
+#plot_series(t_t,s_d,s,o_d)
+#plt.show()
+
+
+#################################
+####
+#### LOADING OBSERVATIONS
+####
+#################################
+
 s = settings()
-
-
+m0, T = initialize(s)
 #load observations
 (obs_times,obs_values)=timeseries.read_series('tide_vlissingen.txt')
 observed_data=np.zeros((4,len(obs_times)))
@@ -310,112 +317,134 @@ s['ilocs']=ilocs
 s['loc_names']=loc_names
 
 
-
-m0, T = initialize(s)
-
 #%%
 
+#################################
+####
 #### INITIALIZATION KALMAN FILTER
-s['ensize'] = 50
-t=s['t'][:] #[:40]
-times=s['times'][:] #[:40]
+####
+#################################
 
-sigmaens = 0.1 # Ensemble noise
 
+
+s['ensize'] = 50 # number of ensembles
+t=s['t'][:] #[:40] # numpy array
+times=s['times'][:] #[:40] # datetime array
+
+sigmaens = 0.0001 # ensemble noise
 k = np.ones(200)
-k[1::2] = 2
-P0 = sigmaens *k* np.eye(s['n']*2) # initial ensemble covariance 
-
+k[1::2] = 2 # variance of height and velocity
+P0 = sigmaens*k*np.eye(s['n']*2) # initial ensemble covariance 
 
 y = np.random.normal(0, 1, size=(s['n']*2, len(t)+1, s['ensize'])) ## standard normal, gridpoints for h x ensemble size
 eps0 = m0.reshape(-1,1) + np.linalg.cholesky(P0).dot(y[:,0,:])
 x0 = np.mean(eps0, axis=1)
 
-#%%
-
-
 # series_data=np.zeros((len(ilocs),len(t)))
 
-sigma_forecast = 0.01 #s['sigma_forecast']
-w = np.zeros(shape=(2*s['n'], len(t), s['ensize']))
-for i in range(2*s['n']):
-    for j in range(s['ensize']):
-        w[i, :, j] = AR_process(sigma_forecast, s['alpha'], size=len(t))
+#################################
+####
+#### Data Assimilation Step
+####
+#################################
 
 # sigmaobs = np.copy(s['sigma_N'])
-sigmaobs = 0.01
+sigmaobs = 0.001
 R = np.eye(4)*sigmaobs
 v = np.zeros(shape=(4, len(times), s['ensize']))
 SR = np.linalg.cholesky(R)
+
+# creation of noise for the virtual observations
 for i in range(len(times)):
     v[:, i, :] = SR.dot(np.random.normal(0, 1, size=(4, s['ensize'])))
 # v = np.linalg.cholesky(R).dot(np.random.normal(0, 1, size=(4, len(times)-1, s['ensize'])))
 
-z_virt = observed_data.reshape(4, -1, 1) + v
+# virtual observations
+z_virt = observed_data.reshape(4, -1, 1) - v # lmao 
 
-H = np.zeros(shape=(4,200))
+##################################
+###### Kalman Filter Initialization
+##################################
+
+H = np.zeros(shape=(4,201))
 H[:, ilocs[1:5]] = 1
 
-
-x_array= np.zeros(shape=(2*s['n'], len(t)))
+x_array= np.zeros(shape=(2*s['n']+1, len(t)))
 series_data = np.zeros(shape=(len(ilocs), len(t)))
 
-#%%
+#################################
+####
+#### Ensemble Forecast Step
+####
+#################################
 
-eps = eps0.copy()
+sigma_forecast = 0.01 #s['sigma_forecast']
+
+w_N = np.random.normal(0,sigma_forecast,size=(len(t), s['ensize'])) # only noise on boundary, time uncorrelated!
+
+G = np.eye(2*s['n']+1)
+
+N_0_arr = np.zeros(s['ensize'])
+for j in range(s['ensize']):
+    N_0 = AR_process(sigma_forecast, s['alpha'], size=1000)[-1]
+    N_0_arr[j] = N_0
+
+eps = np.vstack([eps0, N_0_arr])
+
+print(eps)
+
 for k in range(len(t)):
     print('timestep %d'%k)
-
+    
+    # ensemble forecast step at time k
     epsf = np.zeros_like(eps)
     for i in range(s['ensize']):
-        epsf[:,i]=timestep(eps[:,i],k,s) + w[:, k, i]
-
+        matvec = timestep(eps[:-1,i],k,s, eps[-1,i])
+        
+        epsf[:-1,i] = matvec # model
+        
+        epsf[0,i] = s['h_left'][k] + eps[-1,i] # add noise to first/boundary element
+        
+        epsf[-1,i] = s['alpha']*eps[-1, i]  + w_N[k,i] # add AR process to last element
+        
+    # sample mean
     xf = np.mean(epsf, axis=1)
 
+    # forecast error
     ef = epsf - xf.reshape(-1,1)
     
-    Pf = np.zeros((s['n']*2, s['n']*2))
+    
+    '''
+    
+    # forecast covariance
+    Pf = np.zeros((s['n']*2 +1, s['n']*2 +1))
 
     for j in range(s['ensize']):
         Pf = Pf + np.outer(ef[:, j], ef[:,j])/(s['ensize']-1)
     
     print(np.linalg.eigvals(Pf))
-
+    
+    # kalman filter creation
     D = np.matmul(np.matmul(H,Pf), H.T) + R
     K = np.matmul(np.matmul(Pf, H.T), np.linalg.inv(D))
-
+    
     if k%50 == 0:
         plt.figure()
         plt.plot(K)
-
+    
+    # innovation
     innov = z_virt[:, k, :] - np.matmul(H, epsf)
-
+    
+    # measurement update
     eps = epsf + np.matmul(K, innov)
+    
+    # sample mean of the estimate
     x = np.mean(eps, axis=1)
-
-    e = eps - x.reshape(-1,1)
-
-    P = np.zeros_like(Pf)
-
-    for j in range(s['ensize']):
-        P = P + np.outer(e[:, j], e[:,j])/(s['ensize']-1)
-    print(np.linalg.eigvals(P))
-    eps = x + np.linalg.cholesky(P).dot(y[:,k+1,:])
-    break
-    x_array[:, k] = x
-    series_data[:,k]=x[ilocs,k]
-
-
-#%%
+    
+    '''
+    
+    x_array[:, k] = epsf[:,0]
+    series_data[:,k] = x_array[ilocs,k]
 
 plot_series(times,series_data,s,observed_data)
 plt.show()
-
-
-
-
-
-
-
-
-# %%
