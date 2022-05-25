@@ -20,6 +20,7 @@
 
 #%%
 
+from enum import auto
 import numpy as np
 import pandas as pd ###
 from scipy.sparse import spdiags
@@ -145,25 +146,38 @@ def initialize(settings): #return (h,u,t) at initial time
 
     return (x,t[0])
 
-def plot_state(fig,x,i,s):
+def plot_state(fig,x,i,s, obs_h, ilocs, P):
 
-    '''
+    # copmute confidence intervals
+    trP = np.diag(P)
+    # 2* sigma as upper and lower bound so confidence interval of 95.45%
+    upperbound = 2* np.sqrt(trP[:-1])
+    lowerbound = -1*upperbound
+    
     #plot all waterlevels and velocities at one time
     fig.clear()
     xh=s['x_h']
     ax1=fig.add_subplot(211)
-    ax1.plot(xh,x[0::2])
+    ax1.plot(xh,x[0::2], 'k')
+    # plot the sample mean of the obervations
+    ax1.scatter(xh[ilocs//2], obs_h, c='r')
+    # plot confidence intervals
+    ax1.plot(xh, x[0::2]+ upperbound[0::2], '--b' ,alpha=.5)
+    ax1.plot(xh, x[0::2]+ lowerbound[0::2], '--b', alpha=.5)
     ax1.set_ylabel('h')
-    ax1.set_ylim([-3,3])
+    ax1.set_ylim([-4,4])
+
     xu=s['x_u']
     ax2=fig.add_subplot(212)
     ax2.plot(xu,x[1::2])
+    ax2.plot(xh, x[1::2] + upperbound[1::2], '--b', alpha=.5)
+    ax2.plot(xh, x[1::2] +lowerbound[1::2], '--b', alpha=.5)
     ax2.set_ylabel('u')
     ax2.set_ylim([-3,3])
-    plt.savefig("fig_map_%3.3d.png"%i)
+
+    #plt.savefig("fig_map_%3.3d.png"%i)
     plt.draw()
-    #plt.pause(0.2)
-    '''
+    plt.pause(0.01)
     
 def plot_series(t,series_data,s,obs_data):
     
@@ -171,7 +185,7 @@ def plot_series(t,series_data,s,obs_data):
     # plot timeseries from model and observations
     loc_names=s['loc_names']
     nseries=len(loc_names)
-    for i in range(4):
+    for i in range(nseries):
         fig,ax=plt.subplots()
         ax.plot(t,series_data[i,:],'b-')
         ax.set_title(loc_names[i])
@@ -179,57 +193,6 @@ def plot_series(t,series_data,s,obs_data):
         ntimes=min(len(t),obs_data.shape[1])
         ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
         # plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
-    
-def simulate():
-    # for plots
-    plt.close('all')
-    fig1,ax1 = plt.subplots() #maps: all state vars at one time
-    # locations of observations
-    s=settings()
-    L=s['L']
-    dx=s['dx']
-    xlocs_waterlevel=np.array([0.0*L,0.25*L,0.5*L,0.75*L,0.99*L])
-    xlocs_velocity=np.array([0.0*L,0.25*L,0.5*L,0.75*L])
-    ilocs=np.hstack((np.round((xlocs_waterlevel)/dx)*2,np.round((xlocs_velocity-0.5*dx)/dx)*2+1)).astype(int) #indices of waterlevel locations in x
-    print(ilocs)
-    loc_names=[]
-    names=['Cadzand','Vlissingen','Terneuzen','Hansweert','Bath']
-    for i in range(len(xlocs_waterlevel)):
-        loc_names.append('Waterlevel at x=%f km %s'%(0.001*xlocs_waterlevel[i],names[i]))
-    for i in range(len(xlocs_velocity)):
-        loc_names.append('Velocity at x=%f km %s'%(0.001*xlocs_velocity[i],names[i]))
-    s['xlocs_waterlevel']=xlocs_waterlevel
-    s['xlocs_velocity']=xlocs_velocity
-    s['ilocs']=ilocs
-    s['loc_names']=loc_names
-    #
-    (x,t0)=initialize(s)
-    t=s['t'][:] #[:40]
-    times=s['times'][:] #[:40]
-    series_data=np.zeros((len(ilocs),len(t)))
-    for i in np.arange(1,len(t)):
-        print('timestep %d'%i)
-        x=timestep(x,i,s)
-        plot_state(fig1,x,i,s) #show spatial plot; nice but slow
-        series_data[:,i]=x[ilocs]
-        
-    #load observations
-    (obs_times,obs_values)=timeseries.read_series('tide_cadzand.txt')
-    observed_data=np.zeros((len(ilocs),len(obs_times)))
-    observed_data[0,:]=obs_values[:]
-    (obs_times,obs_values)=timeseries.read_series('tide_vlissingen.txt')
-    observed_data[1,:]=obs_values[:]
-    (obs_times,obs_values)=timeseries.read_series('tide_terneuzen.txt')
-    observed_data[2,:]=obs_values[:]
-    (obs_times,obs_values)=timeseries.read_series('tide_hansweert.txt')
-    observed_data[3,:]=obs_values[:]
-    (obs_times,obs_values)=timeseries.read_series('tide_bath.txt')
-    observed_data[4,:]=obs_values[:]
-
-    plot_series(times,series_data,s,observed_data)
-    
-    return t, obs_times, series_data, observed_data, s
-    
     
 def plop(s_data, o_data):
     
@@ -272,186 +235,228 @@ def timestep(x,i,settings): #return (h,u) one timestep later
 
 #%%
 
-
-#t_t, o_t, s_d, o_d, s = simulate()
-#plot_series(t_t,s_d,s,o_d)
-#plt.show()
-
-
-#################################
-####
-#### LOADING OBSERVATIONS
-####
-#################################
-
-s = settings()
-m0, T = initialize(s)
-#load observations
-(obs_times,obs_values)=timeseries.read_series('tide_vlissingen.txt')
-observed_data=np.zeros((4,len(obs_times)))
-observed_data[0,:]=obs_values[:]
-(obs_times,obs_values)=timeseries.read_series('tide_terneuzen.txt')
-observed_data[1,:]=obs_values[:]
-(obs_times,obs_values)=timeseries.read_series('tide_hansweert.txt')
-observed_data[2,:]=obs_values[:]
-(obs_times,obs_values)=timeseries.read_series('tide_bath.txt')
-observed_data[3,:]=obs_values[:]
-
-observed_data = observed_data[:, 1:]
-
-dx = s['dx']
-L = s['L']
-xlocs_waterlevel=np.array([0.0*L,0.25*L,0.5*L,0.75*L,0.99*L])
-xlocs_velocity=np.array([0.0*L,0.25*L,0.5*L,0.75*L])
-ilocs=np.hstack((np.round((xlocs_waterlevel)/dx)*2,np.round((xlocs_velocity-0.5*dx)/dx)*2+1)).astype(int) #indices of waterlevel locations in x
-loc_names=[]
-names=['Cadzand','Vlissingen','Terneuzen','Hansweert','Bath']
-for i in range(len(xlocs_waterlevel)):
-    loc_names.append('Waterlevel at x=%f km %s'%(0.001*xlocs_waterlevel[i],names[i]))
-for i in range(len(xlocs_velocity)):
-    loc_names.append('Velocity at x=%f km %s'%(0.001*xlocs_velocity[i],names[i]))
-s['xlocs_waterlevel']=xlocs_waterlevel
-s['xlocs_velocity']=xlocs_velocity
-s['ilocs']=ilocs
-s['loc_names']=loc_names
-
-
-#%%
-
-#################################
-####
-#### INITIALIZATION KALMAN FILTER
-####
-#################################
+if __name__ == '__main__':
+    #t_t, o_t, s_d, o_d, s = simulate()
+    #plot_series(t_t,s_d,s,o_d)
+    #plt.show()
 
 
 
-s['ensize'] = 50 # number of ensembles
-t=s['t'][:] #[:40] # numpy array
-times=s['times'][:] #[:40] # datetime array
 
-sigmaens = .1
- # ensemble noise
-k = np.ones(200)
-# k[1::2] = 2 # variance of height and velocity
-P0 = sigmaens*k*np.eye(s['n']*2) # initial ensemble covariance 
+    #################################
+    ####
+    #### LOADING OBSERVATIONS
+    ####
+    #################################
 
-y = np.random.normal(0, 1, size=(s['n']*2, len(t)+1, s['ensize'])) ## standard normal, gridpoints for h x ensemble size
-eps0 = m0.reshape(-1,1) + np.linalg.cholesky(P0).dot(y[:,0,:])
-x0 = np.mean(eps0, axis=1)
+    s = settings()
+    m0, T = initialize(s)
 
-# series_data=np.zeros((len(ilocs),len(t)))
+    dx = s['dx']
+    L = s['L']
+    xlocs_waterlevel=np.array([0.0*L,0.25*L,0.5*L,0.75*L,0.99*L])
+    xlocs_velocity=np.array([0.0*L,0.25*L,0.5*L,0.75*L])
+    ilocs=np.hstack((np.round((xlocs_waterlevel)/dx)*2,np.round((xlocs_velocity-0.5*dx)/dx)*2+1)).astype(int) #indices of waterlevel locations in x
+    loc_names=[]
+    names=['Cadzand','Vlissingen','Terneuzen','Hansweert','Bath']
+    for i in range(len(xlocs_waterlevel)):
+        loc_names.append('Waterlevel at x=%f km %s'%(0.001*xlocs_waterlevel[i],names[i]))
+    for i in range(len(xlocs_velocity)):
+        loc_names.append('Velocity at x=%f km %s'%(0.001*xlocs_velocity[i],names[i]))
+    s['xlocs_waterlevel']=xlocs_waterlevel
+    s['xlocs_velocity']=xlocs_velocity
+    s['ilocs']=ilocs
+    s['loc_names']=loc_names
+    #load observations
+    (obs_times,obs_values)=timeseries.read_series('tide_cadzand.txt')
+    observed_data=np.zeros((len(ilocs),len(obs_times)))
+    observed_data[0,:]=obs_values[:]
+    (obs_times,obs_values)=timeseries.read_series('tide_vlissingen.txt')
+    observed_data[1,:]=obs_values[:]
+    (obs_times,obs_values)=timeseries.read_series('tide_terneuzen.txt')
+    observed_data[2,:]=obs_values[:]
+    (obs_times,obs_values)=timeseries.read_series('tide_hansweert.txt')
+    observed_data[3,:]=obs_values[:]
+    (obs_times,obs_values)=timeseries.read_series('tide_bath.txt')
+    observed_data[4,:]=obs_values[:]
 
-#################################
-####
-#### Data Assimilation Step
-####
-#################################
+    s['obs_ilocs']=ilocs[1:2]
+    s['obs_xlocs'] = xlocs_waterlevel[1:2]
+    s['obs_loc_names'] = loc_names[1:2]
 
-# sigmaobs = np.copy(s['sigma_N'])
-sigmaobs = 0.01
-R = np.eye(4)*sigmaobs
-v = np.zeros(shape=(4, len(times), s['ensize']))
-SR = np.linalg.cholesky(R)
+    observed_data_used = observed_data[1:2, 1:]
 
-# creation of noise for the virtual observations
-for i in range(len(times)):
-    v[:, i, :] = SR.dot(np.random.normal(0, 1, size=(4, s['ensize'])))
-# v = np.linalg.cholesky(R).dot(np.random.normal(0, 1, size=(4, len(times)-1, s['ensize'])))
+    #%%
 
-# virtual observations
-z_virt = observed_data.reshape(4, -1, 1) - v # lmao, is alleen maar huilen dit hoor
+    #################################
+    ####
+    #### INITIALIZATION KALMAN FILTER
+    ####
+    #################################
 
-##################################
-###### Kalman Filter Initialization
-##################################
 
-H = np.zeros(shape=(4,201))
 
-## using only the last 4 observations so not at Cadzand
-for j, iloc in enumerate(ilocs[1:5]):
-    H[j, iloc] = 1
+    s['ensize'] = 50 # number of ensembles
+    t=s['t'][:] #[:40] # numpy array
+    times=s['times'][:] #[:40] # datetime array
 
-x_array= np.zeros(shape=(2*s['n']+1, len(t)))
-series_data = np.zeros(shape=(len(ilocs[1:5]), len(t)))
+    sigmaens = .2
+    # ensemble noise
+    k = np.ones(200)
+    # k[1::2] = 2 # variance of height and velocity
 
-K_array = np.zeros(shape=(2*s['n'] + 1, len(ilocs[1:5]), len(t)))
+    # uncorrelated initial ensemble covariance
+    #P0 = sigmaens*k*np.eye(s['n']*2) # initial ensemble covariance 
 
-#################################
-####
-#### Ensemble Forecast Step
-####
-#################################
+    ## Correlated ensemble covariance start
+    # Autocorrelation matrix
+    autocorr0 = np.zeros(shape=(2*s['n'], 2*s['n']))
+    for i in range(s['n']):
+        if i<20 and i%2 == 0:
+            temp = np.ones(2*s['n'] - i) * (1- i/20)
+            autocorr0 = autocorr0 + np.diag(temp, k=i) + np.diag(temp, k=-1*i)
+    
+    P0 = autocorr0 * sigmaens
+    print(P0)
 
-sigma_forecast = s['sigma_forecast']
 
-w_N = np.random.normal(0,sigma_forecast,size=(len(t), s['ensize'])) # only noise on boundary, time uncorrelated!
+    y = np.random.normal(0, 1, size=(s['n']*2, len(t)+1, s['ensize'])) ## standard normal, gridpoints for h x ensemble size
+    eps0 = m0.reshape(-1,1) + np.linalg.cholesky(P0).dot(y[:,0,:])
+    x0 = np.mean(eps0, axis=1)
 
-G = np.eye(2*s['n']+1)
+    # series_data=np.zeros((len(ilocs),len(t)))
 
-N_0_arr = np.zeros(s['ensize'])
-for j in range(s['ensize']):
-    N_0 = AR_process(sigma_forecast, s['alpha'], size=1000)[-1]
+    #################################
+    ####
+    #### Data Assimilation Step
+    ####
+    #################################
+
+    # sigmaobs = np.copy(s['sigma_N'])
+    sigmaobs = 0.01
+    R = np.eye(len(s['obs_ilocs']))*sigmaobs
+    v = np.zeros(shape=(len(s['obs_ilocs']), len(times), s['ensize']))
+    SR = np.linalg.cholesky(R)
+
+    # creation of noise for the virtual observations
+    for i in range(len(times)):
+        v[:, i, :] = SR.dot(np.random.normal(0, 1, size=(len(s['obs_ilocs']), s['ensize'])))
+    # v = np.linalg.cholesky(R).dot(np.random.normal(0, 1, size=(4, len(times)-1, s['ensize'])))
+
+    # virtual observations
+    z_virt = observed_data_used.reshape(len(s['obs_ilocs']), -1, 1) - v # lmao, is alleen maar huilen dit hoor
+
+    ##################################
+    ###### Kalman Filter Initialization
+    ##################################
+
+    H = np.zeros(shape=(len(s['obs_ilocs']),2*s['n'] + 1))
+
+    ## using only the last 4 observations so not at Cadzand
+    for j, iloc in enumerate(s['obs_ilocs']):
+        H[j, iloc] = 1
+
+    x_array= np.zeros(shape=(2*s['n']+1, len(t)))
+    series_data = np.zeros(shape=(len(s['ilocs']), len(t)))
+
+    K_array = np.zeros(shape=(2*s['n'] + 1, len(s['obs_ilocs']), len(t)))
+
+    #################################
+    ####
+    #### Ensemble Forecast Step
+    ####
+    #################################
+
+    sigma_forecast = s['sigma_forecast']
+
+    w_N = np.random.normal(0,sigma_forecast,size=(len(t), s['ensize'])) # only noise on boundary, time uncorrelated!
+
+    G = np.eye(2*s['n']+1)
+
+    N_0_arr = np.zeros(s['ensize'])
+    for j in range(s['ensize']):
+        N_0 = AR_process(sigma_forecast, s['alpha'], size=1000)[-1]
     N_0_arr[j] = N_0
 
-eps = np.vstack([eps0, N_0_arr])
+    # initial ensemble
+    eps = np.vstack([eps0, N_0_arr])
 
-print(eps)
+    fig1,ax1 = plt.subplots()
 
-for k in range(len(t)):
-    print('timestep %d'%k)
-    
-    # ensemble forecast step at time k
-    epsf = np.zeros_like(eps)
-    for i in range(s['ensize']):
-        matvec = timestep(eps[:-1,i],k,s)
+    for k in range(len(t)):
+        print('timestep %d'%k)
 
-        
-        epsf[:-1,i] = matvec # model
-        
-        epsf[0,i] = epsf[0, i] + eps[-1,i] # add noise to first/boundary element
-        # epsf[0, i] = s['h_left'][k] + eps[-1, i]
-        
-        epsf[-1,i] = s['alpha']*eps[-1, i]  + w_N[k,i] # add AR process to last element
-        
-    # sample mean
-    xf = np.mean(epsf, axis=1)
+        # ensemble forecast step at time k
+        epsf = np.zeros_like(eps)
+        for i in range(s['ensize']):
+            matvec = timestep(eps[:-1,i],k,s)
 
-    # forecast error
-    ef = epsf - xf.reshape(-1,1)   
-    
-    # forecast covariance
-    Pf = np.zeros((s['n']*2 +1, s['n']*2 +1))
+            
+            epsf[:-1,i] = matvec # model
+            
+            epsf[0,i] = epsf[0, i] + eps[-1,i] # add noise to first/boundary element
+            # epsf[0, i] = s['h_left'][k] + eps[-1, i]
+            
+            epsf[-1,i] = s['alpha']*eps[-1, i]  + w_N[k,i] # add AR process to last element
+            
+        # sample mean
+        xf = np.mean(epsf, axis=1)
 
-    for j in range(s['ensize']):
-        Pf = Pf + np.outer(ef[:, j], ef[:,j])/(s['ensize']-1)
-        
-    # kalman filter creation
-    D = np.matmul(np.matmul(H,Pf), H.T) + R 
+        # forecast error
+        ef = epsf - xf.reshape(-1,1)   
 
-    K = np.matmul(np.matmul(Pf, H.T), np.linalg.inv(D))
-    
 
-    if k%50 == 0:
-        plt.figure()
-        plt.plot(K)
-    
-    K_array[:, :, k] = K
+        # More efficient calculation of K
+        # factorize forecast variance estimate Pf=L L'
+        Lf = 1/np.sqrt(s['ensize'] -1) * ef
+        # H L
+        Psi = np.matmul(H, Lf)
 
-    # innovation
-    innov = z_virt[:, k, :] - np.matmul(H, epsf)
-    
-    # measurement update
-    eps = epsf + np.matmul(K, innov)
-    
-    # sample mean of the estimate
-    x = np.mean(eps, axis=1)
-    
-    
-    x_array[:, k] = x
-    series_data[:,k] = x_array[ilocs[1:5],k]
+        D = np.matmul(Psi, Psi.T) + R
+        K = np.matmul(np.matmul(Lf, Psi.T), np.linalg.inv(D))
 
-plot_series(times,series_data,s,observed_data)
+        # Psi @ Psi.T + R
+        temp0 = np.matmul(Psi, Psi.T) + R
+        # temp1 = I - Psi.T @ (Psi @ Psi.T + R)^-1 @ Psi
+        temp1 = np.eye(s['ensize']) - np.matmul( np.matmul(Psi.T, np.linalg.inv(temp0)), Psi)
+        # ensemble variance estimate P = Lf @ temp1 @ Lf.T
+        P = np.matmul(np.matmul(Lf, temp1 ), Lf.T)
 
-# plt.plot(x_array[:-1,::10])
-plt.show()
+        # # forecast covariance
+        # Pf = np.zeros((s['n']*2 +1, s['n']*2 +1))
+
+        # for j in range(s['ensize']):
+        #     Pf = Pf + np.outer(ef[:, j], ef[:,j])/(s['ensize']-1)
+            
+        # # kalman filter creation
+        # D = np.matmul(np.matmul(H,Pf), H.T) + R 
+
+        # K = np.matmul(np.matmul(Pf, H.T), np.linalg.inv(D))
+
+
+        # if k%10 == 0:
+        #     plt.figure()
+        #     plt.plot(K)
+
+        K_array[:, :, k] = K
+
+        # innovation
+        innov = z_virt[:, k, :] - np.matmul(H, epsf)
+
+        # measurement update
+        eps = epsf + np.matmul(K, innov)
+
+        # sample mean of the estimate
+        x = np.mean(eps, axis=1)
+
+        z_obs = np.mean(z_virt[:, k, :], axis=1)
+        plot_state(fig1, x[:-1], k, s, z_obs, s['obs_ilocs'], P)    
+
+
+        x_array[:, k] = x
+        series_data[:,k] = x_array[s['ilocs'],k]
+
+    plot_series(times,series_data,s,observed_data)
+
+    # plt.plot(x_array[:-1,::10])
+    plt.show()
