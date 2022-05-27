@@ -541,10 +541,10 @@ if __name__ == '__main__':
     twin_statistics = np.vstack([b_twin, r_twin, m_twin])
     kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman])
 
-    twin_statistics2 = np.array([])
+    # twin_statistics2 = np.array([])
 
-    plot_statistics(twin_statistics)
-    plot_statistics(kalman_statistics)
+    # plot_statistics(twin_statistics)
+    # plot_statistics(kalman_statistics)
 
     # plot_series(times,series_data,s,observed_data)
 
