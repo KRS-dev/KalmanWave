@@ -280,11 +280,18 @@ if __name__ == '__main__':
     (obs_times,obs_values)=timeseries.read_series('tide_bath.txt')
     observed_data[4,:]=obs_values[:]
 
-    s['obs_ilocs']=ilocs[1:2]
-    s['obs_xlocs'] = xlocs_waterlevel[1:2]
-    s['obs_loc_names'] = loc_names[1:2]
 
-    observed_data_used = observed_data[1:2, 1:]
+    ##############################################
+    ####
+    #### PICK WHICH OBSERVATIONS TO USE IN ASSIMILATION
+    ####
+    ##############################################
+    #  change the indices for a different set of observations
+    s['obs_ilocs']=ilocs[1:4]
+    s['obs_xlocs'] = xlocs_waterlevel[1:4]
+    s['obs_loc_names'] = loc_names[1:4]
+
+    observed_data_used = observed_data[1:4  , 1:]
 
     #%%
 
@@ -296,7 +303,7 @@ if __name__ == '__main__':
 
 
 
-    s['ensize'] = 50 # number of ensembles
+    s['ensize'] = 500 # number of ensembles
     t=s['t'][:] #[:40] # numpy array
     times=s['times'][:] #[:40] # datetime array
 
@@ -333,7 +340,7 @@ if __name__ == '__main__':
     #################################
 
     # sigmaobs = np.copy(s['sigma_N'])
-    sigmaobs = 0.01
+    sigmaobs = 0.05
     R = np.eye(len(s['obs_ilocs']))*sigmaobs
     v = np.zeros(shape=(len(s['obs_ilocs']), len(times), s['ensize']))
     SR = np.linalg.cholesky(R)
