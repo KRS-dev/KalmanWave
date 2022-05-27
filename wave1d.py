@@ -203,14 +203,57 @@ def plop(s_data, o_data):
     rmse = np.zeros(n)
     med = np.zeros(n)
     
-    ntimes = np.min(s_data.shape[1], o_data.shape[1])
+    ntimes = np.min([s_data.shape[1], o_data.shape[1]])
     
     for i in range(n):
-        bias[i] = np.sqrt(np.sum(np.abs(s_d[i,:]-o_d[i,1:]))/ntimes)
-        rmse[i] = np.sqrt(np.sum((s_d[i,:]-o_d[i,1:])**2)/ntimes)
-        med[i] = np.median(s_d[i,:]-o_d[i,1:])
+        bias[i] = np.sqrt(np.sum(np.abs(s_data[i,:]-o_data[i,1:]))/ntimes)
+        rmse[i] = np.sqrt(np.sum((s_data[i,:]-o_data[i,1:])**2)/ntimes)
+        med[i] = np.median(s_data[i,:]-o_data[i,1:])
         
     return bias, rmse, med
+
+def plot_statistics(statistics):
+    fig, axes = plt.subplots(nrows=4, ncols=3, figsize=(12,12), sharey=True)
+
+    n_bins = 10
+    statistics_list = ['Bias', 'Median', 'RMSE']
+
+    for i in range(0, 4):
+        for j in range(statistics.shape[2]):
+
+            data = statistics[i+1, :, j]
+            if j == 2:
+                axes[i, j].hist(data, density=True, bins=n_bins, color='skyblue')
+            else:
+                axes[i, j].hist(data, density=True, bins=n_bins)
+
+
+
+            x = np.linspace(np.min(data), np.max(data), 100)
+
+            mean = np.mean(data)
+            sigma = np.std(data)
+
+            axes[i,j].plot(x, norm.pdf(x, mean, sigma), 'r-', alpha=0.6, label='norm pdf')
+            
+            textstr = '\n'.join((
+                r'$\mu=%.2f$' % (mean, ),
+                r'$\sigma=%.2f$' % (sigma, )))
+
+            # these are matplotlib.patch.Patch properties
+            props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+
+            # place a text box in upper left in axes coords
+            axes[i,j].text(0.05, 0.95, textstr, transform=axes[i,j].transAxes, fontsize=12,
+                    verticalalignment='top', bbox=props)
+
+
+            if j == 0:
+                # print(s['loc_names'][i+1])
+                axes[i, j].set_ylabel(s['loc_names'][i+1].split(' ')[-1])
+            
+            if i == 0:
+                axes[i,j].set_title(statistics_list[j])
 
 def AR_process(sigma_w, alpha, size, startup=1000):
 
@@ -449,7 +492,7 @@ if __name__ == '__main__':
         x = np.mean(eps, axis=1)
 
         z_obs = np.mean(z_virt[:, k, :], axis=1)
-        plot_state(fig1, x[:-1], k, s, z_obs, s['obs_ilocs'], P)    
+        # plot_state(fig1, x[:-1], k, s, z_obs, s['obs_ilocs'], P)    
 
 
         x_array[:, k] = x
@@ -464,7 +507,7 @@ if __name__ == '__main__':
 
     xi = np.vstack([eps0, N_0_arr])
     xi_array = np.zeros((2*s['n']+1, len(t), s['ensize']))
-    series_twin = np.zeros(shape=(len(s['ilocs']), len(t), s['ensize']))
+    series_twin = np.zeros(shape=(len(s['ilocs'][:5]), len(t), s['ensize']))
     
     b_twin_array = np.zeros((len(s['ilocs']), s['ensize']))
     r_twin_array = np.zeros((len(s['ilocs']), s['ensize']))
@@ -481,9 +524,9 @@ if __name__ == '__main__':
             
             xi[-1,i] = s['alpha']*xi[-1, i]  + w_N[k,i] # add AR process to last element
         
-            xi_array[:,:,i] = xi
+            xi_array[:,k,:] = xi
         
-            series_twin[:,k,i] = xi[s['ilocs'],k]
+            series_twin[:,k,i] = xi[s['ilocs'][:5],k]
             
             
     for i in range(s['ensize']):
@@ -494,8 +537,16 @@ if __name__ == '__main__':
     b_twin, r_twin, m_twin = plop(xi_mean, observed_data)
     
     b_kalman, r_kalman, m_kalman = plop(x_array, observed_data)
-        
-    plot_series(times,series_data,s,observed_data)
+
+    twin_statistics = np.vstack([b_twin, r_twin, m_twin])
+    kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman])
+
+    twin_statistics2 = np.array([])
+
+    plot_statistics(twin_statistics)
+    plot_statistics(kalman_statistics)
+
+    # plot_series(times,series_data,s,observed_data)
 
     # plt.plot(x_array[:-1,::10])
     plt.show()
