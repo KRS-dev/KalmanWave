@@ -36,6 +36,7 @@ import datetime
 minutes_to_seconds=60.
 hours_to_seconds=60.*60.
 days_to_seconds=24.*60.*60.
+np.random.seed(2)
 
 def settings():
     s=dict() #hashmap to  use s['g'] as s.g in matlab
@@ -202,9 +203,11 @@ def plop(s_data, o_data):
     rmse = np.zeros(n)
     med = np.zeros(n)
     
+    ntimes = np.min(s_data.shape[1], o_data.shape[1])
+    
     for i in range(n):
-        bias[i] = np.sqrt(np.sum(np.abs(s_d[i,:]-o_d[i,1:]))/len(s_d[i,:]))
-        rmse[i] = np.sqrt(np.sum((s_d[i,:]-o_d[i,1:])**2)/len(s_d[i,:]))
+        bias[i] = np.sqrt(np.sum(np.abs(s_d[i,:]-o_d[i,1:]))/ntimes)
+        rmse[i] = np.sqrt(np.sum((s_d[i,:]-o_d[i,1:])**2)/ntimes)
         med[i] = np.median(s_d[i,:]-o_d[i,1:])
         
     return bias, rmse, med
@@ -239,9 +242,6 @@ if __name__ == '__main__':
     #t_t, o_t, s_d, o_d, s = simulate()
     #plot_series(t_t,s_d,s,o_d)
     #plt.show()
-
-
-
 
     #################################
     ####
@@ -294,8 +294,6 @@ if __name__ == '__main__':
     ####
     #################################
 
-
-
     s['ensize'] = 50 # number of ensembles
     t=s['t'][:] #[:40] # numpy array
     times=s['times'][:] #[:40] # datetime array
@@ -319,7 +317,6 @@ if __name__ == '__main__':
     P0 = autocorr0 * sigmaens
     print(P0)
 
-
     y = np.random.normal(0, 1, size=(s['n']*2, len(t)+1, s['ensize'])) ## standard normal, gridpoints for h x ensemble size
     eps0 = m0.reshape(-1,1) + np.linalg.cholesky(P0).dot(y[:,0,:])
     x0 = np.mean(eps0, axis=1)
@@ -327,9 +324,7 @@ if __name__ == '__main__':
     # series_data=np.zeros((len(ilocs),len(t)))
 
     #################################
-    ####
-    #### Data Assimilation Step
-    ####
+    #### Data Assimilation Initialization
     #################################
 
     # sigmaobs = np.copy(s['sigma_N'])
@@ -360,12 +355,10 @@ if __name__ == '__main__':
     series_data = np.zeros(shape=(len(s['ilocs']), len(t)))
 
     K_array = np.zeros(shape=(2*s['n'] + 1, len(s['obs_ilocs']), len(t)))
-
-    #################################
-    ####
-    #### Ensemble Forecast Step
-    ####
-    #################################
+    
+    ##################################
+    ###### Ensemble Forecast Initialization
+    ##################################
 
     sigma_forecast = s['sigma_forecast']
 
@@ -386,11 +379,15 @@ if __name__ == '__main__':
     for k in range(len(t)):
         print('timestep %d'%k)
 
-        # ensemble forecast step at time k
+        #################################
+        ####
+        #### Ensemble Forecast Step
+        ####
+        #################################
+        
         epsf = np.zeros_like(eps)
         for i in range(s['ensize']):
             matvec = timestep(eps[:-1,i],k,s)
-
             
             epsf[:-1,i] = matvec # model
             
@@ -401,11 +398,16 @@ if __name__ == '__main__':
             
         # sample mean
         xf = np.mean(epsf, axis=1)
-
+        
+        #################################
+        ####
+        #### Data Assimilation Step
+        ####
+        #################################   
+        
         # forecast error
-        ef = epsf - xf.reshape(-1,1)   
-
-
+        ef = epsf - xf.reshape(-1,1)
+        
         # More efficient calculation of K
         # factorize forecast variance estimate Pf=L L'
         Lf = 1/np.sqrt(s['ensize'] -1) * ef
@@ -421,18 +423,6 @@ if __name__ == '__main__':
         temp1 = np.eye(s['ensize']) - np.matmul( np.matmul(Psi.T, np.linalg.inv(temp0)), Psi)
         # ensemble variance estimate P = Lf @ temp1 @ Lf.T
         P = np.matmul(np.matmul(Lf, temp1 ), Lf.T)
-
-        # # forecast covariance
-        # Pf = np.zeros((s['n']*2 +1, s['n']*2 +1))
-
-        # for j in range(s['ensize']):
-        #     Pf = Pf + np.outer(ef[:, j], ef[:,j])/(s['ensize']-1)
-            
-        # # kalman filter creation
-        # D = np.matmul(np.matmul(H,Pf), H.T) + R 
-
-        # K = np.matmul(np.matmul(Pf, H.T), np.linalg.inv(D))
-
 
         # if k%10 == 0:
         #     plt.figure()
@@ -455,7 +445,47 @@ if __name__ == '__main__':
 
         x_array[:, k] = x
         series_data[:,k] = x_array[s['ilocs'],k]
+    
+    
+    #################################
+    ####
+    #### TWIN EXPERIMENT
+    ####
+    #################################    
 
+    xi = np.vstack([eps0, N_0_arr])
+    xi_array = np.zeros((2*s['n']+1, len(t), s['ensize']))
+    series_twin = np.zeros(shape=(len(s['ilocs']), len(t), s['ensize']))
+    
+    b_twin_array = np.zeros((len(s['ilocs']), s['ensize']))
+    r_twin_array = np.zeros((len(s['ilocs']), s['ensize']))
+    m_twin_array = np.zeros((len(s['ilocs']), s['ensize']))
+    
+    for k in range(lent(t)):
+        
+        for i in range(s['ensize']):
+            matvec = timestep(xi[:-1,i],k,s)
+            
+            xi[:-1,i] = matvec # model
+            
+            xi[0,i] = xi[0,i] + xi[-1,i] # add noise to first/boundary element
+            
+            xi[-1,i] = s['alpha']*xi[-1, i]  + w_N[k,i] # add AR process to last element
+        
+            xi_array[:,:,i] = xi
+        
+            series_twin[:,k,i] = xi[s['ilocs'],k]
+            
+            
+    for i in range(s['ensize']):
+        b_twin_array[:,i], r_twin_array[:,i], m_twin_array[:,i] = plop(series_twin[:,:,i],observed_data[:5,:])
+            
+    xi_mean = np.mean(xi_array,axis=2)
+    
+    b_twin, r_twin, m_twin = plop(xi_mean, observed_data)
+    
+    b_kalman, r_kalman, m_kalman = plop(x_array, observed_data)
+        
     plot_series(times,series_data,s,observed_data)
 
     # plt.plot(x_array[:-1,::10])
