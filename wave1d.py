@@ -36,7 +36,7 @@ import datetime
 minutes_to_seconds=60.
 hours_to_seconds=60.*60.
 days_to_seconds=24.*60.*60.
-np.random.seed(2)
+np.random.seed(100)
 
 def settings():
     s=dict() #hashmap to  use s['g'] as s.g in matlab
@@ -152,7 +152,7 @@ def plot_state(fig,x,i,s, obs_h, ilocs, P):
     # copmute confidence intervals
     trP = np.diag(P)
     # 2* sigma as upper and lower bound so confidence interval of 95.45%
-    upperbound = 2* np.sqrt(trP[:-1])
+    upperbound = 2* np.sqrt(trP)
     lowerbound = -1*upperbound
     
     #plot all waterlevels and velocities at one time
@@ -330,11 +330,11 @@ if __name__ == '__main__':
     ####
     ##############################################
     #  change the indices for a different set of observations
-    s['obs_ilocs']=ilocs[1:4]
-    s['obs_xlocs'] = xlocs_waterlevel[1:4]
-    s['obs_loc_names'] = loc_names[1:4]
+    s['obs_ilocs']=ilocs[1:5]
+    s['obs_xlocs'] = xlocs_waterlevel[1:5]
+    s['obs_loc_names'] = loc_names[1:5]
 
-    observed_data_used = observed_data[1:4  , 1:]
+    observed_data_used = observed_data[1:5  , 1:]
 
     #%%
 
@@ -350,23 +350,23 @@ if __name__ == '__main__':
     t=s['t'][:] #[:40] # numpy array
     times=s['times'][:] #[:40] # datetime array
 
-    sigmaens = .2
+    sigmaens = 0.02
     # ensemble noise
     k = np.ones(200)
     # k[1::2] = 2 # variance of height and velocity
 
     # uncorrelated initial ensemble covariance
-    #P0 = sigmaens*k*np.eye(s['n']*2) # initial ensemble covariance 
+    P0 = sigmaens*k*np.eye(s['n']*2) # initial ensemble covariance 
 
     ## Correlated ensemble covariance start
     # Autocorrelation matrix
-    autocorr0 = np.zeros(shape=(2*s['n'], 2*s['n']))
-    for i in range(s['n']):
-        if i<20 and i%2 == 0:
-            temp = np.ones(2*s['n'] - i) * (1- i/20)
-            autocorr0 = autocorr0 + np.diag(temp, k=i) + np.diag(temp, k=-1*i)
+    # autocorr0 = np.zeros(shape=(2*s['n'], 2*s['n']))
+    # for i in range(s['n']):
+    #     if i<20 and i%2 == 0:
+    #         temp = np.ones(2*s['n'] - i) * (1- i/20)
+    #         autocorr0 = autocorr0 + np.diag(temp, k=i) + np.diag(temp, k=-1*i)
     
-    P0 = autocorr0 * sigmaens
+    # P0 = autocorr0 * sigmaens
     print(P0)
 
     y = np.random.normal(0, 1, size=(s['n']*2, len(t)+1, s['ensize'])) ## standard normal, gridpoints for h x ensemble size
@@ -380,7 +380,7 @@ if __name__ == '__main__':
     #################################
 
     # sigmaobs = np.copy(s['sigma_N'])
-    sigmaobs = 0.05
+    sigmaobs = 0.01
     R = np.eye(len(s['obs_ilocs']))*sigmaobs
     v = np.zeros(shape=(len(s['obs_ilocs']), len(times), s['ensize']))
     SR = np.linalg.cholesky(R)
@@ -391,13 +391,14 @@ if __name__ == '__main__':
     # v = np.linalg.cholesky(R).dot(np.random.normal(0, 1, size=(4, len(times)-1, s['ensize'])))
 
     # virtual observations
-    z_virt = observed_data_used.reshape(len(s['obs_ilocs']), -1, 1) - v # lmao, is alleen maar huilen dit hoor
+    z = observed_data_used.reshape(len(s['obs_ilocs']), -1, 1)
+    z_virt = z - v # lmao, is alleen maar huilen dit hoor
 
     ##################################
     ###### Kalman Filter Initialization
     ##################################
 
-    H = np.zeros(shape=(len(s['obs_ilocs']),2*s['n'] + 1))
+    H = np.zeros(shape=(len(s['obs_ilocs']),2*s['n']))
 
     ## using only the last 4 observations so not at Cadzand
     for j, iloc in enumerate(s['obs_ilocs']):
@@ -406,7 +407,7 @@ if __name__ == '__main__':
     x_array= np.zeros(shape=(2*s['n']+1, len(t)))
     series_data = np.zeros(shape=(len(s['ilocs']), len(t)))
 
-    K_array = np.zeros(shape=(2*s['n'] + 1, len(s['obs_ilocs']), len(t)))
+    K_array = np.zeros(shape=(2*s['n'] , len(s['obs_ilocs']), len(t)))
     
     ##################################
     ###### Ensemble Forecast Initialization
@@ -449,7 +450,7 @@ if __name__ == '__main__':
             epsf[-1,i] = s['alpha']*eps[-1, i]  + w_N[k,i] # add AR process to last element
             
         # sample mean
-        xf = np.mean(epsf, axis=1)
+        xf = np.mean(epsf[:-1, :], axis=1)
         
         #################################
         ####
@@ -458,16 +459,25 @@ if __name__ == '__main__':
         #################################   
         
         # forecast error
-        ef = epsf - xf.reshape(-1,1)
+        ef = epsf[:-1, :] - xf.reshape(-1,1)
         
         # More efficient calculation of K
         # factorize forecast variance estimate Pf=L L'
         Lf = 1/np.sqrt(s['ensize'] -1) * ef
         # H L
-        Psi = np.matmul(H, Lf)
+        Psi = H.dot(Lf)
 
-        D = np.matmul(Psi, Psi.T) + R
-        K = np.matmul(np.matmul(Lf, Psi.T), np.linalg.inv(D))
+        D = Psi.dot( Psi.T) + R
+
+        A = Lf.dot(Psi.T)
+
+        # K = np.linalg.solve(A, )
+        # K = np.matmul(np.matmul(Lf, Psi.T), np.linalg.inv(D))
+        K = (Lf.dot(Psi.T)).dot(np.linalg.inv(D))
+
+        for i, loc in enumerate(s['obs_ilocs']):
+            K[ loc+20:, i] = 0
+            K[:loc-20, i] = 0
 
         # Psi @ Psi.T + R
         temp0 = np.matmul(Psi, Psi.T) + R
@@ -476,17 +486,24 @@ if __name__ == '__main__':
         # ensemble variance estimate P = Lf @ temp1 @ Lf.T
         P = np.matmul(np.matmul(Lf, temp1 ), Lf.T)
 
-        # if k%10 == 0:
+
+        
+        # if k%40 == 0:
         #     plt.figure()
         #     plt.plot(K)
+        #     plt.legend(s['obs_loc_names'])
 
         K_array[:, :, k] = K
 
         # innovation
-        innov = z_virt[:, k, :] - np.matmul(H, epsf)
+        innov = z_virt[:, k, :] - np.matmul(H, epsf[:-1,:])
+        # innov = z[:,k] - np.matmul(H, epsf)
 
         # measurement update
-        eps = epsf + np.matmul(K, innov)
+        eps = np.zeros_like(epsf)
+        eps[:-1, :] = epsf[:-1, :] + np.matmul(K, innov)
+        eps[-1, :] = epsf[-1, :]
+
 
         # sample mean of the estimate
         x = np.mean(eps, axis=1)
@@ -498,7 +515,7 @@ if __name__ == '__main__':
         x_array[:, k] = x
         series_data[:,k] = x_array[s['ilocs'],k]
     
-    
+
     #################################
     ####
     #### TWIN EXPERIMENT
@@ -507,11 +524,11 @@ if __name__ == '__main__':
 
     xi = np.vstack([eps0, N_0_arr])
     xi_array = np.zeros((2*s['n']+1, len(t), s['ensize']))
-    series_twin = np.zeros(shape=(len(s['ilocs'][:5]), len(t), s['ensize']))
+    series_twin = np.zeros(shape=(len(s['ilocs']), len(t), s['ensize']))
     
-    b_twin_array = np.zeros((len(s['ilocs']), s['ensize']))
-    r_twin_array = np.zeros((len(s['ilocs']), s['ensize']))
-    m_twin_array = np.zeros((len(s['ilocs']), s['ensize']))
+    b_twin_array = np.zeros((5, s['ensize']))
+    r_twin_array = np.zeros((5, s['ensize']))
+    m_twin_array = np.zeros((5, s['ensize']))
     
     for k in range(len(t)):
         
@@ -526,27 +543,35 @@ if __name__ == '__main__':
         
             xi_array[:,k,:] = xi
         
-            series_twin[:,k,i] = xi[s['ilocs'][:5],k]
+            series_twin[:,k,i] = xi[s['ilocs'],k]
             
             
     for i in range(s['ensize']):
-        b_twin_array[:,i], r_twin_array[:,i], m_twin_array[:,i] = plop(series_twin[:,:,i],observed_data[:5,:])
-            
+        b_twin_array[:,i], r_twin_array[:,i], m_twin_array[:,i] = plop(series_twin[:,:,i],observed_data)
+    
+    twin_statistics_big = np.vstack([b_twin_array, r_twin_array, m_twin_array])
+
+
     xi_mean = np.mean(xi_array,axis=2)
     
-    b_twin, r_twin, m_twin = plop(xi_mean, observed_data)
+    b_twin, r_twin, m_twin = plop(np.mean(series_twin, axis=2), observed_data)
     
-    b_kalman, r_kalman, m_kalman = plop(x_array, observed_data)
+    b_kalman, r_kalman, m_kalman = plop(series_data, observed_data)
 
     twin_statistics = np.vstack([b_twin, r_twin, m_twin])
     kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman])
 
-    # twin_statistics2 = np.array([])
+    df_twin = pd.DataFrame(twin_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5])
+    print(df_twin)
+    df_kalman = pd.DataFrame(kalman_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5] )
+    print(df_kalman)
+
 
     # plot_statistics(twin_statistics)
     # plot_statistics(kalman_statistics)
 
-    # plot_series(times,series_data,s,observed_data)
+    plot_series(times,series_data,s,observed_data)
+    plot_series(times, np.mean(series_twin, axis=2), s, observed_data)
 
     # plt.plot(x_array[:-1,::10])
     plt.show()
