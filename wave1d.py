@@ -183,18 +183,61 @@ def plot_state(fig,x,i,s, obs_h, ilocs, P):
     
 def plot_series(t,series_data,s,obs_data):
     
-    
+
+  
     # plot timeseries from model and observations
-    loc_names=s['loc_names']
+    loc_names=s['loc_names'][0:5]
+    loc_names[0] = loc_names[0].replace('0000', '',1)
+    loc_names[1] = loc_names[1].replace('0000', '',1)
+    loc_names[2] = loc_names[2].replace('0000', '',1)
+    loc_names[3] = loc_names[3].replace('0000', '',1)
+    loc_names[4] = loc_names[4].replace('0000', '',1)
+
+    
     nseries=len(loc_names)
-    for i in range(nseries):
-        fig,ax=plt.subplots()
-        ax.plot(t,series_data[i,:],'b-')
-        ax.set_title(loc_names[i])
-        ax.set_xlabel('time')
-        ntimes=min(len(t),obs_data.shape[1])
-        ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
-        # plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
+    ntimes=min(len(t),obs_data.shape[1])
+    
+    figs,axs = plt.subplots(2,2, figsize=(8,8))
+    axs[0,0].plot(t,series_data[1,:],'g-' )
+    axs[0,0].plot(t[0:ntimes],obs_data[1,0:ntimes],'k-')
+    axs[0,0].set_title(loc_names[1])
+    axs[0,0].minorticks_off()
+    #axs[0,0].set_xticks(np.arange(0, series_data[1,-1],))
+    #axs[0,0].set_xlim(0, 200000)
+    #axs[0,0].locator_params(axis='x', nbins=4)
+    
+    axs[0,1].plot(t,series_data[2,:],'b-' )
+    axs[0,1].plot(t[0:ntimes],obs_data[2,0:ntimes],'k-')
+    axs[0,1].set_title(loc_names[2])
+    axs[0,1].minorticks_off()
+    
+    axs[1,0].plot(t,series_data[3,:],'m-' )
+    axs[1,0].plot(t[0:ntimes],obs_data[3,0:ntimes],'k-')
+    axs[1,0].set_title(loc_names[3])
+    axs[1,0].minorticks_off()
+    
+    
+    axs[1,1].plot(t,series_data[4,:],'r-' )
+    axs[1,1].plot(t[0:ntimes],obs_data[4,0:ntimes],'k-')
+    axs[1,1].set_title(loc_names[4])
+    axs[1,1].minorticks_off()
+    
+    axs[1,0].set_xlabel('time (s)')
+    axs[1,1].set_xlabel('time (s)')
+    axs[1,0].set_ylabel('height (m)')
+    axs[0,0].set_ylabel('height (m)')
+    
+    figs.savefig("simulate.png")
+    
+    # for i in range(nseries):
+        #fig,ax=plt.subplots()
+        #ax.plot(t,series_data[i,:],'b-')
+        #ax.set_title(loc_names[i])
+        #ax.set_xlabel('time')
+        #ntimes=min(len(t),obs_data.shape[1])
+        #ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
+        #plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
+        
     
 def plop(s_data, o_data):
     
@@ -426,10 +469,10 @@ def enKF(P0, sigmaobs, s, seed):
     df_kalman = pd.DataFrame(kalman_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5] )
     print(df_kalman)
 
-    plt.ion()
+    # plt.ion()
 
 
-    plot_series(times,series_data,s,observed_data)
+    plot_series(t,series_data,s,observed_data)
 
     plt.show()
 
