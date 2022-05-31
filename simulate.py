@@ -25,6 +25,7 @@ from scipy.sparse import spdiags
 from scipy.sparse.linalg import spsolve
 from scipy.signal import find_peaks ###
 from scipy.signal import argrelextrema ###
+from scipy.stats import ks_2samp
 from sklearn.cluster import KMeans ### 
 import matplotlib.pyplot as plt
 import timeseries
@@ -274,13 +275,17 @@ def plop(s_data, o_data):
     bias = np.zeros(n)
     rmse = np.zeros(n)
     med = np.zeros(n)
+    ks2 = []
+    
+    ntimes = np.min([s_data.shape[1], o_data.shape[1]])
     
     for i in range(n):
-        bias[i] = np.mean(s_data[i,:]-o_data[i,1:])
-        rmse[i] = np.sqrt(np.sum((s_data[i,:]-o_data[i,1:])**2)/len(s_data[i,:]))
+        bias[i] = np.sqrt(np.sum(np.abs(s_data[i,:]-o_data[i,1:]))/ntimes)
+        rmse[i] = np.sqrt(np.sum((s_data[i,:]-o_data[i,1:])**2)/ntimes)
         med[i] = np.median(s_data[i,:]-o_data[i,1:])
+        ks2.append(ks_2samp(s_data[i,:],o_data[i,1:]))
         
-    return bias, rmse, med
+    return bias, rmse, med, ks2
     
 def peaks_find(s_data, t_data):
     
@@ -336,6 +341,8 @@ if __name__ == "__main__":
     initialize(s)
     t_t, o_t, s_d, o_d = simulate(s)
     
+    plop(s_d,o_d)
+    
     
     ###################################################################
     
@@ -387,7 +394,7 @@ if __name__ == "__main__":
     
     #### Bias, RMSE, Median 
      
-    b, r, m = plop(s_d,o_d)
+    b, r, m, ks_2 = plop(s_d,o_d)
     
     plt.ion()
     
@@ -409,4 +416,3 @@ if __name__ == "__main__":
     ax_peaks.legend(loc='lower right')
     
     plt.show()
-
