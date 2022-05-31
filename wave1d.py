@@ -202,6 +202,7 @@ def plop(s_data, o_data):
     bias = np.zeros(n)
     rmse = np.zeros(n)
     med = np.zeros(n)
+    ks2 = []
     
     ntimes = np.min([s_data.shape[1], o_data.shape[1]])
     
@@ -209,8 +210,9 @@ def plop(s_data, o_data):
         bias[i] = np.sqrt(np.sum(np.abs(s_data[i,:]-o_data[i,1:]))/ntimes)
         rmse[i] = np.sqrt(np.sum((s_data[i,:]-o_data[i,1:])**2)/ntimes)
         med[i] = np.median(s_data[i,:]-o_data[i,1:])
+        ks2.append(ks_2samp(s_data[i,:],o_data[i,1:]))
         
-    return bias, rmse, med
+    return bias, rmse, med, ks2
 
 def plot_statistics(statistics):
     fig, axes = plt.subplots(nrows=4, ncols=3, figsize=(12,12), sharey=True)
@@ -343,21 +345,18 @@ if __name__ == '__main__':
     #### INITIALIZATION KALMAN FILTER
     ####
     #################################
-
-
-
-    s['ensize'] = 500 # number of ensembles
-    t=s['t'][:] #[:40] # numpy array
-    times=s['times'][:] #[:40] # datetime array
-
-    sigmaens = 0.02
-    # ensemble noise
+    
+    #################################
+    #### Parameters to be varied
+    #################################
+    
+    s['ensize'] = 50                    # number of ensembles: 50, 100, 200, 500
+    sigmaens = 0.02                     # ensemble variance:  
+    
     k = np.ones(200)
-    # k[1::2] = 2 # variance of height and velocity
-
-    # uncorrelated initial ensemble covariance
-    P0 = sigmaens*k*np.eye(s['n']*2) # initial ensemble covariance 
-
+    # k[1::2] = 2                       # variance of height and velocity
+    P0 = sigmaens*k*np.eye(s['n']*2)    # initial ensemble covariance (uncorrelated)
+    
     ## Correlated ensemble covariance start
     # Autocorrelation matrix
     # autocorr0 = np.zeros(shape=(2*s['n'], 2*s['n']))
@@ -365,8 +364,20 @@ if __name__ == '__main__':
     #     if i<20 and i%2 == 0:
     #         temp = np.ones(2*s['n'] - i) * (1- i/20)
     #         autocorr0 = autocorr0 + np.diag(temp, k=i) + np.diag(temp, k=-1*i)
-    
     # P0 = autocorr0 * sigmaens
+    
+    sigmaobs = 0.01                     # observation variance:
+    # sigmaobs = np.copy(s['sigma_N'])
+    
+    ############################################################################
+    
+    #################################
+    #### Creation of initial ensemble
+    #################################
+    
+    t=s['t'][:] #[:40] # numpy array
+    times=s['times'][:] #[:40] # datetime array
+
     print(P0)
 
     y = np.random.normal(0, 1, size=(s['n']*2, len(t)+1, s['ensize'])) ## standard normal, gridpoints for h x ensemble size
@@ -379,8 +390,6 @@ if __name__ == '__main__':
     #### Data Assimilation Initialization
     #################################
 
-    # sigmaobs = np.copy(s['sigma_N'])
-    sigmaobs = 0.01
     R = np.eye(len(s['obs_ilocs']))*sigmaobs
     v = np.zeros(shape=(len(s['obs_ilocs']), len(times), s['ensize']))
     SR = np.linalg.cholesky(R)
@@ -543,7 +552,7 @@ if __name__ == '__main__':
         
             xi_array[:,k,:] = xi
         
-            series_twin[:,k,i] = xi[s['ilocs'],k]
+            series_twin[:,k,i] = xi[s['ilocs'],i]
             
             
     for i in range(s['ensize']):
@@ -566,7 +575,7 @@ if __name__ == '__main__':
     df_kalman = pd.DataFrame(kalman_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5] )
     print(df_kalman)
 
-
+    plt.ion()
     # plot_statistics(twin_statistics)
     # plot_statistics(kalman_statistics)
 
