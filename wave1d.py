@@ -475,9 +475,9 @@ if __name__ == '__main__':
         # K = np.matmul(np.matmul(Lf, Psi.T), np.linalg.inv(D))
         K = (Lf.dot(Psi.T)).dot(np.linalg.inv(D))
 
-        for i, loc in enumerate(s['obs_ilocs']):
-            K[ loc+20:, i] = 0
-            K[:loc-20, i] = 0
+        # for i, loc in enumerate(s['obs_ilocs']):
+        #     K[ loc+20:, i] = 0
+        #     K[:loc-20, i] = 0
 
         # Psi @ Psi.T + R
         temp0 = np.matmul(Psi, Psi.T) + R
@@ -543,7 +543,7 @@ if __name__ == '__main__':
         
             xi_array[:,k,:] = xi
         
-            series_twin[:,k,i] = xi[s['ilocs'],k]
+            series_twin[:,k,i] = xi[s['ilocs'],i]
             
             
     for i in range(s['ensize']):
