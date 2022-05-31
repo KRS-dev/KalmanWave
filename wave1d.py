@@ -462,6 +462,8 @@ def enKF(P0, sigmaobs, s, seed):
     
 
     
+
+
     b_kalman, r_kalman, m_kalman, ks_kalman = plop(series_data, observed_data)
 
     kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman])
@@ -470,13 +472,42 @@ def enKF(P0, sigmaobs, s, seed):
     print(df_kalman)
 
     # plt.ion()
-
-
     plot_series(t,series_data,s,observed_data)
 
+
+    #################################
+    ####
+    #### TWIN EXPERIMENT
+    ####
+    #################################    
+
+    xi = np.vstack([eps0, N_0_arr])
+    series_twin = np.zeros(shape=(len(s['ilocs']), len(t), s['ensize']))
+    
+    
+    for k in range(len(t)):
+        
+        for i in range(s['ensize']):
+            matvec = timestep(xi[:-1,i],k,s)
+            
+            xi[:-1,i] = matvec # model
+            
+            xi[0,i] = xi[0,i] + xi[-1,i] # add noise to first/boundary element
+            
+            xi[-1,i] = s['alpha']*xi[-1, i]  + w_N[k,i] # add AR process to last element
+                
+            series_twin[:,k,i] = xi[s['ilocs'],i]
+            
+
+    
+    b_twin, r_twin, m_twin, ks_twin = plop(np.mean(series_twin, axis=2), observed_data)
+    
+    twin_statistics = np.vstack([b_twin, r_twin, m_twin])
+
+    
     plt.show()
 
-    return kalman_statistics, ks_kalman
+    return kalman_statistics, ks_kalman, twin_statistics, ks_twin, 
 
 #%%
 
@@ -567,6 +598,24 @@ if __name__ == '__main__':
     # sigmaobs = np.copy(s['sigma_N'])
     
     ############################################################################
+
+    #################################
+    ####
+    #### SIMULATE EXPERIMENT
+    ####
+    ################################# 
+
+    xs = m0
+    series_simulate = np.zeros(len(s['ilocs']), len(t))
+    for k in range(len(t)):
+        xs = timestep(xs, k, s)
+        series_simulate[:, k] = xs[s['ilocs']]
+
+    #################################
+    ####
+    #### SIMULATE TWIN for different ensize/sigmaobs
+    ####
+    ################################# 
 
     k = enKF(P0, sigmaobs, s, 10)
 
