@@ -569,8 +569,8 @@ if __name__ == '__main__':
     #### Parameters to be varied
     #################################
     
-    s['ensize'] = 200                    # number of ensembles: 50, 100, 200, 500
-    sigmaens = 0.01                       # ensemble variance:  
+    s['ensize'] = 1000                    # number of ensembles: 50, 100, 200, 500
+    sigmaens = 0.2                   # ensemble variance:  
     
     k = np.ones(200)
     # k[1::2] = 2                       # variance of height and velocity
