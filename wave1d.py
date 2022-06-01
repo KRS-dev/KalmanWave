@@ -27,6 +27,7 @@ from scipy.sparse import spdiags
 from scipy.sparse.linalg import spsolve
 from scipy.signal import find_peaks ###
 from scipy.signal import argrelextrema ###
+from scipy.stats import ks_2samp
 from sklearn.cluster import KMeans ### 
 import matplotlib.pyplot as plt
 import timeseries
@@ -182,19 +183,58 @@ def plot_state(fig,x,i,s, obs_h, ilocs, P):
     
 def plot_series(t,series_data,s,obs_data):
     
-    
     # plot timeseries from model and observations
-    loc_names=s['loc_names']
-    nseries=len(loc_names)
-    for i in range(nseries):
-        fig,ax=plt.subplots()
-        ax.plot(t,series_data[i,:],'b-')
-        ax.set_title(loc_names[i])
-        ax.set_xlabel('time')
-        ntimes=min(len(t),obs_data.shape[1])
-        ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
-        # plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
+    loc_names=s['loc_names'][0:5]
+    loc_names[0] = loc_names[0].replace('0000', '',1)
+    loc_names[1] = loc_names[1].replace('0000', '',1)
+    loc_names[2] = loc_names[2].replace('0000', '',1)
+    loc_names[3] = loc_names[3].replace('0000', '',1)
+    loc_names[4] = loc_names[4].replace('0000', '',1)
+
     
+    nseries=len(loc_names)
+    ntimes=min(len(t),obs_data.shape[1])
+    
+    figs,axs = plt.subplots(2,2, figsize=(8,8))
+    axs[0,0].plot(t,series_data[1,:],'g-' )
+    axs[0,0].plot(t[0:ntimes],obs_data[1,0:ntimes],'k-')
+    axs[0,0].set_title(loc_names[1])
+    axs[0,0].minorticks_off()
+    #axs[0,0].set_xticks(np.arange(0, series_data[1,-1],))
+    #axs[0,0].set_xlim(0, 200000)
+    #axs[0,0].locator_params(axis='x', nbins=4)
+    
+    axs[0,1].plot(t,series_data[2,:],'b-' )
+    axs[0,1].plot(t[0:ntimes],obs_data[2,0:ntimes],'k-')
+    axs[0,1].set_title(loc_names[2])
+    axs[0,1].minorticks_off()
+    
+    axs[1,0].plot(t,series_data[3,:],'m-' )
+    axs[1,0].plot(t[0:ntimes],obs_data[3,0:ntimes],'k-')
+    axs[1,0].set_title(loc_names[3])
+    axs[1,0].minorticks_off()
+    
+    
+    axs[1,1].plot(t,series_data[4,:],'r-' )
+    axs[1,1].plot(t[0:ntimes],obs_data[4,0:ntimes],'k-')
+    axs[1,1].set_title(loc_names[4])
+    axs[1,1].minorticks_off()
+    
+    axs[1,0].set_xlabel('time (s)')
+    axs[1,1].set_xlabel('time (s)')
+    axs[1,0].set_ylabel('height (m)')
+    axs[0,0].set_ylabel('height (m)')
+    
+    figs.savefig("simulate.png")
+    
+    # for i in range(nseries):
+        #fig,ax=plt.subplots()
+        #ax.plot(t,series_data[i,:],'b-')
+        #ax.set_title(loc_names[i])
+        #ax.set_xlabel('time')
+        #ntimes=min(len(t),obs_data.shape[1])
+        #ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
+        #plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
 def plop(s_data, o_data):
     
     n = 5 # five cities, heights
@@ -281,6 +321,185 @@ def timestep(x,i,settings): #return (h,u) one timestep later
     newx=spsolve(A,rhs)
     return newx
 
+
+def enKF_timestep(k, eps, s):
+    
+    w_N = s['w_N']
+
+    epsf = np.zeros_like(eps)
+
+    for i in range(s['ensize']):
+        matvec = timestep(eps[:-1,i],k,s)
+        
+        epsf[:-1,i] = matvec # model
+        
+        epsf[0,i] = epsf[0, i] + eps[-1,i] # add noise to first/boundary element
+        
+        epsf[-1,i] = s['alpha']*eps[-1, i]  + w_N[k,i] # add AR process to last element
+    
+    return epsf
+
+def enKF_timestep_no_noise(k, eps, s):
+    w_N = s['w_N']
+
+    epsf = np.zeros_like(eps)
+    for i in range(s['ensize']):
+        matvec = timestep(eps[:-1,i],k,s)
+        
+        epsf[:-1,i] = matvec # model
+        
+        # epsf[0,i] = epsf[0, i] + eps[-1,i] # add noise to first/boundary element
+        
+        epsf[-1,i] = s['alpha']*eps[-1, i]  + w_N[k,i] # add AR process to last element
+    
+    return epsf
+
+def enKF_measurementstep(k, epsf, s):
+
+    H = s['H']
+    R = s['R']
+    z_virt = s['z_virt']
+
+    # sample mean
+    xf = np.mean(epsf[:-1, :], axis=1)
+    # forecast error
+    ef = epsf[:-1, :] - xf.reshape(-1,1)
+    
+    # More efficient calculation of K
+    # factorize forecast variance estimate Pf=L L'
+    Lf = 1/np.sqrt(s['ensize'] -1) * ef
+    # H L
+    Psi = H.dot(Lf)
+
+    D = Psi.dot( Psi.T) + R
+
+    K = (Lf.dot(Psi.T)).dot(np.linalg.inv(D))
+
+    # for i, loc in enumerate(s['obs_ilocs']):
+    #     K[ loc+20:, i] = 0
+    #     K[:loc-20, i] = 0
+
+    # Psi @ Psi.T + R
+    temp0 = np.matmul(Psi, Psi.T) + R
+    # temp1 = I - Psi.T @ (Psi @ Psi.T + R)^-1 @ Psi
+    temp1 = np.eye(s['ensize']) - np.matmul( np.matmul(Psi.T, np.linalg.inv(temp0)), Psi)
+    # ensemble variance estimate P = Lf @ temp1 @ Lf.T
+    P = np.matmul(np.matmul(Lf, temp1 ), Lf.T)
+    
+    # if k%40 == 0:
+    #     plt.figure()
+    #     plt.plot(K)
+    #     plt.legend(s['obs_loc_names'])
+
+    # innovation
+    innov = z_virt[:, k, :] - np.matmul(H, epsf[:-1,:])
+
+    # measurement update
+    eps = np.zeros_like(epsf)
+    eps[:-1, :] = epsf[:-1, :] + np.matmul(K, innov)
+    eps[-1, :] = epsf[-1, :]
+
+    return eps, K, P
+
+def enKF(eps0, prediction_timei, s):
+
+    eps = eps0.copy()
+    t = s['t']
+    z_virt = s['z_virt']
+    x_array= np.zeros(shape=(2*s['n']+1, len(t)))
+    series_data = np.zeros(shape=(len(s['ilocs']), len(t)))
+    K_array = np.zeros(shape=(2*s['n'] , len(s['obs_ilocs']), len(t)))
+
+    fig1,ax1 = plt.subplots()
+
+    for k in range(len(t)):
+        print('timestep %d'%k)
+
+        if k== prediction_timei:
+            print('Start Prediction at {}'.format(s['times'][k]))
+
+        #################################
+        ####
+        #### Ensemble Forecast Step
+        ####
+        #################################
+        if k < prediction_timei:
+            epsf = enKF_timestep(k, eps, s)
+            #################################
+            ####
+            #### Data Assimilation Step
+            ####
+            #################################   
+            
+            eps, K, P = enKF_measurementstep(k, epsf, s)
+            K_array[:, :, k] = K
+        else:
+            eps = enKF_timestep_no_noise(k, eps, s)
+            ef = eps - np.mean(eps, axis=1).reshape(-1,1)
+            Lf = 1/np.sqrt(s['ensize']-1) *ef[:-1, :]
+            P = Lf.dot(Lf.T)
+
+        # sample mean of the estimate
+        x = np.mean(eps, axis=1)
+
+        z_obs = np.mean(z_virt[:, k, :], axis=1)
+        plot_state(fig1, x[:-1], k, s, z_obs, s['obs_ilocs'], P)    
+
+
+        x_array[:, k] = x
+        series_data[:,k] = x_array[s['ilocs'],k]
+    
+
+    # #################################
+    # ####
+    # #### TWIN EXPERIMENT
+    # ####
+    # #################################    
+
+    # xi = np.vstack([eps0, N_0_arr])
+    # xi_array = np.zeros((2*s['n']+1, len(t), s['ensize']))
+    # series_twin = np.zeros(shape=(len(s['ilocs']), len(t), s['ensize']))
+    
+    # b_twin_array = np.zeros((5, s['ensize']))
+    # r_twin_array = np.zeros((5, s['ensize']))
+    # m_twin_array = np.zeros((5, s['ensize']))
+    
+    # for k in range(len(t)):
+        
+    #     for i in range(s['ensize']):
+    #         matvec = timestep(xi[:-1,i],k,s)
+            
+    #         xi[:-1,i] = matvec # model
+            
+    #         xi[0,i] = xi[0,i] + xi[-1,i] # add noise to first/boundary element
+            
+    #         xi[-1,i] = s['alpha']*xi[-1, i]  + w_N[k,i] # add AR process to last element
+        
+    #         xi_array[:,k,:] = xi
+        
+    #         series_twin[:,k,i] = xi[s['ilocs'],i]
+            
+    
+    # b_twin, r_twin, m_twin, _ = plop(np.mean(series_twin, axis=2), observed_data)
+
+    b_kalman, r_kalman, m_kalman, _ = plop(series_data, observed_data)
+
+    # twin_statistics = np.vstack([b_twin, r_twin, m_twin])
+    kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman])
+    # df_twin = pd.DataFrame(twin_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5])
+    # print(df_twin)
+    df_kalman = pd.DataFrame(kalman_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5] )
+    print(df_kalman)
+
+    plt.ion()
+    # plot_statistics(twin_statistics)
+    # plot_statistics(kalman_statistics)
+
+    plot_series(times,series_data,s,observed_data)
+    # plot_series(times, np.mean(series_twin, axis=2), s, observed_data)
+
+    # plt.plot(x_array[:-1,::10])
+
 #%%
 
 if __name__ == '__main__':
@@ -316,13 +535,13 @@ if __name__ == '__main__':
     (obs_times,obs_values)=timeseries.read_series('tide_cadzand.txt')
     observed_data=np.zeros((len(ilocs),len(obs_times)))
     observed_data[0,:]=obs_values[:]
-    (obs_times,obs_values)=timeseries.read_series('tide_vlissingen.txt')
+    (obs_times,obs_values)=timeseries.read_series('waterlevel_vlissingen.txt')
     observed_data[1,:]=obs_values[:]
-    (obs_times,obs_values)=timeseries.read_series('tide_terneuzen.txt')
+    (obs_times,obs_values)=timeseries.read_series('waterlevel_terneuzen.txt')
     observed_data[2,:]=obs_values[:]
-    (obs_times,obs_values)=timeseries.read_series('tide_hansweert.txt')
+    (obs_times,obs_values)=timeseries.read_series('waterlevel_hansweert.txt')
     observed_data[3,:]=obs_values[:]
-    (obs_times,obs_values)=timeseries.read_series('tide_bath.txt')
+    (obs_times,obs_values)=timeseries.read_series('waterlevel_bath.txt')
     observed_data[4,:]=obs_values[:]
 
 
@@ -350,8 +569,8 @@ if __name__ == '__main__':
     #### Parameters to be varied
     #################################
     
-    s['ensize'] = 50                    # number of ensembles: 50, 100, 200, 500
-    sigmaens = 0.02                     # ensemble variance:  
+    s['ensize'] = 200                    # number of ensembles: 50, 100, 200, 500
+    sigmaens = 0.01                       # ensemble variance:  
     
     k = np.ones(200)
     # k[1::2] = 2                       # variance of height and velocity
@@ -391,6 +610,8 @@ if __name__ == '__main__':
     #################################
 
     R = np.eye(len(s['obs_ilocs']))*sigmaobs
+    s['R'] = R
+
     v = np.zeros(shape=(len(s['obs_ilocs']), len(times), s['ensize']))
     SR = np.linalg.cholesky(R)
 
@@ -402,21 +623,17 @@ if __name__ == '__main__':
     # virtual observations
     z = observed_data_used.reshape(len(s['obs_ilocs']), -1, 1)
     z_virt = z - v # lmao, is alleen maar huilen dit hoor
+    s['z_virt'] = z_virt
 
     ##################################
     ###### Kalman Filter Initialization
     ##################################
 
     H = np.zeros(shape=(len(s['obs_ilocs']),2*s['n']))
-
     ## using only the last 4 observations so not at Cadzand
     for j, iloc in enumerate(s['obs_ilocs']):
         H[j, iloc] = 1
-
-    x_array= np.zeros(shape=(2*s['n']+1, len(t)))
-    series_data = np.zeros(shape=(len(s['ilocs']), len(t)))
-
-    K_array = np.zeros(shape=(2*s['n'] , len(s['obs_ilocs']), len(t)))
+    s['H'] = H
     
     ##################################
     ###### Ensemble Forecast Initialization
@@ -425,6 +642,7 @@ if __name__ == '__main__':
     sigma_forecast = s['sigma_forecast']
 
     w_N = np.random.normal(0,sigma_forecast,size=(len(t), s['ensize'])) # only noise on boundary, time uncorrelated!
+    s['w_N'] = w_N
 
     G = np.eye(2*s['n']+1)
 
@@ -436,151 +654,12 @@ if __name__ == '__main__':
     # initial ensemble
     eps = np.vstack([eps0, N_0_arr])
 
-    fig1,ax1 = plt.subplots()
-
-    for k in range(len(t)):
-        print('timestep %d'%k)
-
-        #################################
-        ####
-        #### Ensemble Forecast Step
-        ####
-        #################################
-        
-        epsf = np.zeros_like(eps)
-        for i in range(s['ensize']):
-            matvec = timestep(eps[:-1,i],k,s)
-            
-            epsf[:-1,i] = matvec # model
-            
-            epsf[0,i] = epsf[0, i] + eps[-1,i] # add noise to first/boundary element
-            # epsf[0, i] = s['h_left'][k] + eps[-1, i]
-            
-            epsf[-1,i] = s['alpha']*eps[-1, i]  + w_N[k,i] # add AR process to last element
-            
-        # sample mean
-        xf = np.mean(epsf[:-1, :], axis=1)
-        
-        #################################
-        ####
-        #### Data Assimilation Step
-        ####
-        #################################   
-        
-        # forecast error
-        ef = epsf[:-1, :] - xf.reshape(-1,1)
-        
-        # More efficient calculation of K
-        # factorize forecast variance estimate Pf=L L'
-        Lf = 1/np.sqrt(s['ensize'] -1) * ef
-        # H L
-        Psi = H.dot(Lf)
-
-        D = Psi.dot( Psi.T) + R
-
-        A = Lf.dot(Psi.T)
-
-        # K = np.linalg.solve(A, )
-        # K = np.matmul(np.matmul(Lf, Psi.T), np.linalg.inv(D))
-        K = (Lf.dot(Psi.T)).dot(np.linalg.inv(D))
-
-        # for i, loc in enumerate(s['obs_ilocs']):
-        #     K[ loc+20:, i] = 0
-        #     K[:loc-20, i] = 0
-
-        # Psi @ Psi.T + R
-        temp0 = np.matmul(Psi, Psi.T) + R
-        # temp1 = I - Psi.T @ (Psi @ Psi.T + R)^-1 @ Psi
-        temp1 = np.eye(s['ensize']) - np.matmul( np.matmul(Psi.T, np.linalg.inv(temp0)), Psi)
-        # ensemble variance estimate P = Lf @ temp1 @ Lf.T
-        P = np.matmul(np.matmul(Lf, temp1 ), Lf.T)
-
-
-        
-        # if k%40 == 0:
-        #     plt.figure()
-        #     plt.plot(K)
-        #     plt.legend(s['obs_loc_names'])
-
-        K_array[:, :, k] = K
-
-        # innovation
-        innov = z_virt[:, k, :] - np.matmul(H, epsf[:-1,:])
-        # innov = z[:,k] - np.matmul(H, epsf)
-
-        # measurement update
-        eps = np.zeros_like(epsf)
-        eps[:-1, :] = epsf[:-1, :] + np.matmul(K, innov)
-        eps[-1, :] = epsf[-1, :]
-
-
-        # sample mean of the estimate
-        x = np.mean(eps, axis=1)
-
-        z_obs = np.mean(z_virt[:, k, :], axis=1)
-        # plot_state(fig1, x[:-1], k, s, z_obs, s['obs_ilocs'], P)    
-
-
-        x_array[:, k] = x
-        series_data[:,k] = x_array[s['ilocs'],k]
+    peak_i = np.argmax(observed_data[4,:]) # peak time indice recorded at Bath
     
+    prediction_starttimes = peak_i - 6 * np.arange(1, 7) # Start 1, 2, 3, 4, 5, 6 hours before the peak with predicting
 
-    #################################
-    ####
-    #### TWIN EXPERIMENT
-    ####
-    #################################    
 
-    xi = np.vstack([eps0, N_0_arr])
-    xi_array = np.zeros((2*s['n']+1, len(t), s['ensize']))
-    series_twin = np.zeros(shape=(len(s['ilocs']), len(t), s['ensize']))
+    for sttime in prediction_starttimes:
+        enKF(eps, sttime, s)
     
-    b_twin_array = np.zeros((5, s['ensize']))
-    r_twin_array = np.zeros((5, s['ensize']))
-    m_twin_array = np.zeros((5, s['ensize']))
-    
-    for k in range(len(t)):
-        
-        for i in range(s['ensize']):
-            matvec = timestep(xi[:-1,i],k,s)
-            
-            xi[:-1,i] = matvec # model
-            
-            xi[0,i] = xi[0,i] + xi[-1,i] # add noise to first/boundary element
-            
-            xi[-1,i] = s['alpha']*xi[-1, i]  + w_N[k,i] # add AR process to last element
-        
-            xi_array[:,k,:] = xi
-        
-            series_twin[:,k,i] = xi[s['ilocs'],i]
-            
-            
-    for i in range(s['ensize']):
-        b_twin_array[:,i], r_twin_array[:,i], m_twin_array[:,i] = plop(series_twin[:,:,i],observed_data)
-    
-    twin_statistics_big = np.vstack([b_twin_array, r_twin_array, m_twin_array])
-
-
-    xi_mean = np.mean(xi_array,axis=2)
-    
-    b_twin, r_twin, m_twin = plop(np.mean(series_twin, axis=2), observed_data)
-    
-    b_kalman, r_kalman, m_kalman = plop(series_data, observed_data)
-
-    twin_statistics = np.vstack([b_twin, r_twin, m_twin])
-    kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman])
-
-    df_twin = pd.DataFrame(twin_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5])
-    print(df_twin)
-    df_kalman = pd.DataFrame(kalman_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5] )
-    print(df_kalman)
-
-    plt.ion()
-    # plot_statistics(twin_statistics)
-    # plot_statistics(kalman_statistics)
-
-    plot_series(times,series_data,s,observed_data)
-    plot_series(times, np.mean(series_twin, axis=2), s, observed_data)
-
-    # plt.plot(x_array[:-1,::10])
     plt.show()
