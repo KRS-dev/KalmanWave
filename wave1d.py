@@ -453,7 +453,7 @@ def enKF(eps0, prediction_timei, s):
         x = np.mean(eps, axis=1)
 
         z_obs = np.mean(z_virt[:, k, :], axis=1)
-        plot_state(fig1, x[:-1], k, s, z_obs, s['obs_ilocs'], P)    
+        # plot_state(fig1, x[:-1], k, s, z_obs, s['obs_ilocs'], P)    
 
 
         x_array[:, k] = x
@@ -466,7 +466,7 @@ def enKF(eps0, prediction_timei, s):
     # ####
     # #################################    
 
-    xi = np.vstack([eps0, N_0_arr])
+    xi = eps0.copy()
     xi_array = np.zeros((2*s['n']+1, len(t), s['ensize']))
     series_twin = np.zeros(shape=(len(s['ilocs']), len(t), s['ensize']))
     
@@ -490,20 +490,25 @@ def enKF(eps0, prediction_timei, s):
             series_twin[:,k,i] = xi[s['ilocs'],i]
             
     
-    b_twin, r_twin, m_twin, ks = plop(np.mean(series_twin, axis=2), observed_data)
+    b_twin, r_twin, m_twin, ks_twin = plop(np.mean(series_twin, axis=2), observed_data)
 
-    b_kalman, r_kalman, m_kalman, _ = plop(series_data, observed_data)
+    b_kalman, r_kalman, m_kalman, ks_kalman = plop(series_data, observed_data)
 
-    twin_statistics = np.vstack([b_twin, r_twin, m_twin])
-    kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman])
-    # df_twin = pd.DataFrame(twin_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5])
-    # print(df_twin)
-    df_kalman = pd.DataFrame(kalman_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5] )
-    print(df_kalman)
+    p_twin = np.array([k.pvalue for k in ks_twin])
+    p_kalman = np.array([k.pvalue for k in ks_kalman])
 
 
+    both = np.vstack([b_twin, b_kalman, r_twin, r_kalman, m_twin, m_kalman, p_twin, p_kalman])
 
-    plot_series(t, s, observed_data, None, series_data, series_twin, s['ensize'])
+    names = [x.split(' ')[-1] for x in s['loc_names'][:5]]
+
+    index = pd.MultiIndex.from_product([['Bias', 'RMSE', 'Median', 'p-value'], ['Twin', 'EnKF']], names=['Statistic', 'Experiment'])
+    df = pd.DataFrame(both, index=index, columns= names)
+    print(df.to_latex(float_format='%.3f'))
+
+
+
+    plot_series(t, s, observed_data, None, series_data, np.mean(series_twin, axis=2), s['ensize'])
 
     # plt.plot(x_array[:-1,::10])
 
@@ -578,8 +583,9 @@ if __name__ == '__main__':
     #### Parameters to be varied
     #################################
     
-    s['ensize'] = 200                    # number of ensembles: 50, 100, 200, 500
+    s['ensize'] = 1000                    # number of ensembles: 50, 100, 200, 500
     sigmaens = 0.01                  # ensemble variance:  
+    s['sigmaens'] = sigmaens
     
     k = np.ones(200)
     # k[1::2] = 2                       # variance of height and velocity
@@ -595,6 +601,7 @@ if __name__ == '__main__':
     P0 = autocorr0 * sigmaens
     
     sigmaobs = 0.001                     # observation variance:
+    s['sigmaobs'] = sigmaobs
     # sigmaobs = np.copy(s['sigma_N'])
     
     ############################################################################
