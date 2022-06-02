@@ -27,6 +27,7 @@ from scipy.sparse import spdiags
 from scipy.sparse.linalg import spsolve
 from scipy.signal import find_peaks ###
 from scipy.signal import argrelextrema ###
+from scipy.stats import ks_2samp
 from sklearn.cluster import KMeans ### 
 import matplotlib.pyplot as plt
 import timeseries
@@ -350,8 +351,9 @@ if __name__ == '__main__':
     #### Parameters to be varied
     #################################
     
-    s['ensize'] = 50                    # number of ensembles: 50, 100, 200, 500
-    sigmaens = 0.02                     # ensemble variance:  
+    s['ensize'] = 1000                 # number of ensembles: 50, 100, 200, 500
+    sigmaens = 0.2 
+    s['sigmaens']= sigmaens               # ensemble variance:  
     
     k = np.ones(200)
     # k[1::2] = 2                       # variance of height and velocity
@@ -366,7 +368,8 @@ if __name__ == '__main__':
     #         autocorr0 = autocorr0 + np.diag(temp, k=i) + np.diag(temp, k=-1*i)
     # P0 = autocorr0 * sigmaens
     
-    sigmaobs = 0.01                     # observation variance:
+    sigmaobs = 0.001                     # observation variance:
+    s['sigmaobs'] = sigmaobs
     # sigmaobs = np.copy(s['sigma_N'])
     
     ############################################################################
@@ -497,10 +500,21 @@ if __name__ == '__main__':
 
 
         
-        # if k%40 == 0:
-        #     plt.figure()
-        #     plt.plot(K)
-        #     plt.legend(s['obs_loc_names'])
+        if k in [20, 260]:
+            fig, axes = plt.subplots(2, 1, figsize=(8,8))
+
+            names = [x.split(' ')[-1] for x in s['obs_loc_names']]
+            axes[0].plot(s['x_h'], K[::2, :])
+            axes[0].set_ylabel('K height')
+            axes[0].set_xlabel('x [m]')
+
+            axes[1].plot(s['x_u'], K[1::2, :])
+            axes[1].set_ylabel('K velocity')
+            axes[1].set_xlabel('x [m]')
+            fig.legend(names)
+            fig.suptitle(r'ensembles: ${}$ , $\sigma_{{obs}}$ = ${}$, $\sigma_{{ens}}$ = ${}$'.format(s['ensize'], s['sigmaobs'], s['sigmaens']) )
+
+            
 
         K_array[:, :, k] = K
 
@@ -555,32 +569,41 @@ if __name__ == '__main__':
             series_twin[:,k,i] = xi[s['ilocs'],i]
             
             
-    for i in range(s['ensize']):
-        b_twin_array[:,i], r_twin_array[:,i], m_twin_array[:,i] = plop(series_twin[:,:,i],observed_data)
+    # for i in range(s['ensize']):
+    #     b_twin_array[:,i], r_twin_array[:,i], m_twin_array[:,i] = plop(series_twin[:,:,i],observed_data)
     
-    twin_statistics_big = np.vstack([b_twin_array, r_twin_array, m_twin_array])
+    # twin_statistics_big = np.vstack([b_twin_array, r_twin_array, m_twin_array])
 
 
-    xi_mean = np.mean(xi_array,axis=2)
-    
-    b_twin, r_twin, m_twin = plop(np.mean(series_twin, axis=2), observed_data)
-    
-    b_kalman, r_kalman, m_kalman = plop(series_data, observed_data)
+    # xi_mean = np.mean(xi_array,axis=2)
 
-    twin_statistics = np.vstack([b_twin, r_twin, m_twin])
-    kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman])
+    # b_twin, r_twin, m_twin, ks_twin = plop(np.mean(series_twin, axis=2), observed_data)
 
-    df_twin = pd.DataFrame(twin_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5])
-    print(df_twin)
-    df_kalman = pd.DataFrame(kalman_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5] )
-    print(df_kalman)
+    # b_kalman, r_kalman, m_kalman, ks_kalman = plop(series_data, observed_data)
 
-    plt.ion()
+    # p_twin = np.array([k.pvalue for k in ks_twin])
+    # p_kalman = np.array([k.pvalue for k in ks_kalman])
+
+
+    # twin_statistics = np.vstack([b_twin, r_twin, m_twin, p_twin])
+    # kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman, p_kalman])
+
+    # both = np.vstack([b_twin, b_kalman, r_twin, r_kalman, m_twin, m_kalman, p_twin, p_kalman])
+
+    # names = [x.split(' ')[-1] for x in s['loc_names'][:5]]
+
+    # index = pd.MultiIndex.from_product([['Bias', 'RMSE', 'Median', 'p-value'], ['Twin', 'EnKF']], names=['Statistic', 'Experiment'])
+    # df = pd.DataFrame(both, index=index, columns= names)
+    # print(df.to_latex(float_format='%.3f'))
+
+
+
+    # plt.ion()
     # plot_statistics(twin_statistics)
     # plot_statistics(kalman_statistics)
 
-    plot_series(times,series_data,s,observed_data)
-    plot_series(times, np.mean(series_twin, axis=2), s, observed_data)
+    # plot_series(times,series_data,s,observed_data)
+    # plot_series(times, np.mean(series_twin, axis=2), s, observed_data)
 
-    # plt.plot(x_array[:-1,::10])
+    # # plt.plot(x_array[:-1,::10])
     plt.show()
