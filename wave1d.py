@@ -181,7 +181,7 @@ def plot_state(fig,x,i,s, obs_h, ilocs, P):
     plt.draw()
     plt.pause(0.01)
     
-def plot_series(t,series_data,s,obs_data):
+def plot_series(t, s, obs_data, series_data, kalman_data, twin_data, i):
     
     # plot timeseries from model and observations
     loc_names=s['loc_names'][0:5]
@@ -191,50 +191,60 @@ def plot_series(t,series_data,s,obs_data):
     loc_names[3] = loc_names[3].replace('0000', '',1)
     loc_names[4] = loc_names[4].replace('0000', '',1)
 
-    
     nseries=len(loc_names)
     ntimes=min(len(t),obs_data.shape[1])
     
-    figs,axs = plt.subplots(2,2, figsize=(8,8))
-    axs[0,0].plot(t,series_data[1,:],'g-' )
-    axs[0,0].plot(t[0:ntimes],obs_data[1,0:ntimes],'k-')
+    plt.figure(i)
+
+    figs,axs = plt.subplots(2,2, figsize=(10,10))
+    axs[0,0].plot(t,twin_data[1,:],'green', alpha = 0.75, label = 'twin')
+    axs[0,0].plot(t[0:ntimes],obs_data[1,0:ntimes],'k.-', mfc='none', lw = 1, label = 'obs')
+    axs[0,0].plot(t,kalman_data[1,:],'blue', lw = 1, label = 'kalman')
+    #axs[0,0].plot(t,series_data[1,:],'r', lw = 1, label = 'model')
     axs[0,0].set_title(loc_names[1])
     axs[0,0].minorticks_off()
-    #axs[0,0].set_xticks(np.arange(0, series_data[1,-1],))
-    #axs[0,0].set_xlim(0, 200000)
-    #axs[0,0].locator_params(axis='x', nbins=4)
-    
-    axs[0,1].plot(t,series_data[2,:],'b-' )
-    axs[0,1].plot(t[0:ntimes],obs_data[2,0:ntimes],'k-')
+    axs[0,0].set_xlim([0, t[-1]])
+    axs[0,0].locator_params(tight=True, nbins=4)
+
+    axs[0,1].plot(t,twin_data[2,:],'green', alpha=0.75)
+    axs[0,1].plot(t[0:ntimes],obs_data[2,0:ntimes],'k.-', mfc='none', lw = 1)
+    axs[0,1].plot(t,kalman_data[2,:],'blue', lw = 1)
+    #axs[0,1].plot(t,series_data[2,:],'r', lw = 1)
     axs[0,1].set_title(loc_names[2])
     axs[0,1].minorticks_off()
+    axs[0,1].set_xlim([0, t[-1]])
+    axs[0,1].locator_params(tight=True, nbins=4)
     
-    axs[1,0].plot(t,series_data[3,:],'m-' )
-    axs[1,0].plot(t[0:ntimes],obs_data[3,0:ntimes],'k-')
+    axs[1,0].plot(t,twin_data[3,:],'green', alpha=0.75)
+    axs[1,0].plot(t[0:ntimes],obs_data[3,0:ntimes],'k.-', mfc='none', lw = 1)
+    axs[1,0].plot(t,kalman_data[3,:],'blue', lw = 1)
+    #axs[1,0].plot(t,series_data[3,:],'r', lw = 1)
     axs[1,0].set_title(loc_names[3])
     axs[1,0].minorticks_off()
+    axs[1,0].set_xlim([0, t[-1]])
+    axs[1,0].locator_params(tight=True, nbins=4)
     
-    
-    axs[1,1].plot(t,series_data[4,:],'r-' )
-    axs[1,1].plot(t[0:ntimes],obs_data[4,0:ntimes],'k-')
+    axs[1,1].plot(t,twin_data[4,:],'green', alpha=0.75)
+    axs[1,1].plot(t[0:ntimes],obs_data[4,0:ntimes],'k.-', mfc='none', lw = 1)
+    axs[1,1].plot(t,kalman_data[4,:],'blue', lw = 1)
+    #axs[1,1].plot(t,series_data[4,:],'r', lw = 1)
     axs[1,1].set_title(loc_names[4])
     axs[1,1].minorticks_off()
+    axs[1,1].set_xlim([0, t[-1]])
+    axs[1,1].locator_params(tight=True, nbins=4)
     
     axs[1,0].set_xlabel('time (s)')
     axs[1,1].set_xlabel('time (s)')
     axs[1,0].set_ylabel('height (m)')
     axs[0,0].set_ylabel('height (m)')
     
-    figs.savefig("simulate.png")
+    figs.legend()
     
-    # for i in range(nseries):
-        #fig,ax=plt.subplots()
-        #ax.plot(t,series_data[i,:],'b-')
-        #ax.set_title(loc_names[i])
-        #ax.set_xlabel('time')
-        #ntimes=min(len(t),obs_data.shape[1])
-        #ax.plot(t[0:ntimes],obs_data[i,0:ntimes],'k-')
-        #plt.savefig(("%s.png"%loc_names[i]).replace(' ','_'))
+    figs.suptitle(r'ensembles: ${}$ , $\sigma_{{obs}}$ = ${}$, $\sigma_{{ens}}$ = ${}$'.format(s['ensize'], s['sigmaobs'], s['sigmaens']) )
+    
+    
+    return figs
+
 def plop(s_data, o_data):
     
     n = 5 # five cities, heights
@@ -456,49 +466,48 @@ def enKF(eps0, prediction_timei, s):
     # ####
     # #################################    
 
-    # xi = np.vstack([eps0, N_0_arr])
-    # xi_array = np.zeros((2*s['n']+1, len(t), s['ensize']))
-    # series_twin = np.zeros(shape=(len(s['ilocs']), len(t), s['ensize']))
+    xi = np.vstack([eps0, N_0_arr])
+    xi_array = np.zeros((2*s['n']+1, len(t), s['ensize']))
+    series_twin = np.zeros(shape=(len(s['ilocs']), len(t), s['ensize']))
     
-    # b_twin_array = np.zeros((5, s['ensize']))
-    # r_twin_array = np.zeros((5, s['ensize']))
-    # m_twin_array = np.zeros((5, s['ensize']))
+    b_twin_array = np.zeros((5, s['ensize']))
+    r_twin_array = np.zeros((5, s['ensize']))
+    m_twin_array = np.zeros((5, s['ensize']))
     
-    # for k in range(len(t)):
+    for k in range(len(t)):
         
-    #     for i in range(s['ensize']):
-    #         matvec = timestep(xi[:-1,i],k,s)
+        for i in range(s['ensize']):
+            matvec = timestep(xi[:-1,i],k,s)
             
-    #         xi[:-1,i] = matvec # model
+            xi[:-1,i] = matvec # model
             
-    #         xi[0,i] = xi[0,i] + xi[-1,i] # add noise to first/boundary element
+            xi[0,i] = xi[0,i] + xi[-1,i] # add noise to first/boundary element
             
-    #         xi[-1,i] = s['alpha']*xi[-1, i]  + w_N[k,i] # add AR process to last element
+            xi[-1,i] = s['alpha']*xi[-1, i]  + w_N[k,i] # add AR process to last element
         
-    #         xi_array[:,k,:] = xi
+            xi_array[:,k,:] = xi
         
-    #         series_twin[:,k,i] = xi[s['ilocs'],i]
+            series_twin[:,k,i] = xi[s['ilocs'],i]
             
     
-    # b_twin, r_twin, m_twin, _ = plop(np.mean(series_twin, axis=2), observed_data)
+    b_twin, r_twin, m_twin, ks = plop(np.mean(series_twin, axis=2), observed_data)
 
     b_kalman, r_kalman, m_kalman, _ = plop(series_data, observed_data)
 
-    # twin_statistics = np.vstack([b_twin, r_twin, m_twin])
+    twin_statistics = np.vstack([b_twin, r_twin, m_twin])
     kalman_statistics = np.vstack([b_kalman, r_kalman, m_kalman])
     # df_twin = pd.DataFrame(twin_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5])
     # print(df_twin)
     df_kalman = pd.DataFrame(kalman_statistics, index=['bias', 'rmse', 'median'], columns=s['loc_names'][:5] )
     print(df_kalman)
 
-    plt.ion()
-    # plot_statistics(twin_statistics)
-    # plot_statistics(kalman_statistics)
 
-    plot_series(times,series_data,s,observed_data)
-    # plot_series(times, np.mean(series_twin, axis=2), s, observed_data)
+
+    plot_series(t, s, observed_data, None, series_data, series_twin, s['ensize'])
 
     # plt.plot(x_array[:-1,::10])
+
+
 
 #%%
 
@@ -569,23 +578,23 @@ if __name__ == '__main__':
     #### Parameters to be varied
     #################################
     
-    s['ensize'] = 1000                    # number of ensembles: 50, 100, 200, 500
-    sigmaens = 0.2                   # ensemble variance:  
+    s['ensize'] = 200                    # number of ensembles: 50, 100, 200, 500
+    sigmaens = 0.01                  # ensemble variance:  
     
     k = np.ones(200)
     # k[1::2] = 2                       # variance of height and velocity
     P0 = sigmaens*k*np.eye(s['n']*2)    # initial ensemble covariance (uncorrelated)
     
-    ## Correlated ensemble covariance start
+    # Correlated ensemble covariance start
     # Autocorrelation matrix
-    # autocorr0 = np.zeros(shape=(2*s['n'], 2*s['n']))
-    # for i in range(s['n']):
-    #     if i<20 and i%2 == 0:
-    #         temp = np.ones(2*s['n'] - i) * (1- i/20)
-    #         autocorr0 = autocorr0 + np.diag(temp, k=i) + np.diag(temp, k=-1*i)
-    # P0 = autocorr0 * sigmaens
+    autocorr0 = np.zeros(shape=(2*s['n'], 2*s['n']))
+    for i in range(s['n']):
+        if i<20 and i%2 == 0:
+            temp = np.ones(2*s['n'] - i) * (1- i/20)
+            autocorr0 = autocorr0 + np.diag(temp, k=i) + np.diag(temp, k=-1*i)
+    P0 = autocorr0 * sigmaens
     
-    sigmaobs = 0.01                     # observation variance:
+    sigmaobs = 0.001                     # observation variance:
     # sigmaobs = np.copy(s['sigma_N'])
     
     ############################################################################
@@ -656,10 +665,15 @@ if __name__ == '__main__':
 
     peak_i = np.argmax(observed_data[4,:]) # peak time indice recorded at Bath
     
-    prediction_starttimes = peak_i - 6 * np.arange(1, 7) # Start 1, 2, 3, 4, 5, 6 hours before the peak with predicting
+    # prediction_starttimes = peak_i - 6 * np.arange(1, 7) # Start 1, 2, 3, 4, 5, 6 hours before the peak with predicting
 
+    prediction_starttimes = [300]
 
     for sttime in prediction_starttimes:
         enKF(eps, sttime, s)
+
+    
+
+    
     
     plt.show()
